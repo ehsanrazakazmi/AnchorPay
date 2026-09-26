@@ -1,0 +1,16 @@
+{
+  "eventId": "0199a1d0-0000-7000-8000-000000000001",
+  "eventType": "payment.failed",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-26T10:12:03Z",
+  "producer": "payment-service",
+  "correlationId": "req_01J8Z6Q4N5",
+  "causationId": null,
+  "data": {
+    "paymentId": "0199a1c4-7777-7abc-8def-000000000007",
+    "transferId": "0199a1c0-0000-7000-8000-00000000abcd",
+    "stage": "authorization",
+    "failureCode": "card_declined",
+    "failedAt": "2026-09-26T10:10:00Z"
+  }
+}

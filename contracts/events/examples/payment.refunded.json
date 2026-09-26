@@ -1,0 +1,19 @@
+{
+  "eventId": "0199a1d0-0000-7000-8000-000000000001",
+  "eventType": "payment.refunded",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-26T10:12:03Z",
+  "producer": "payment-service",
+  "correlationId": "req_01J8Z6Q4N5",
+  "causationId": null,
+  "data": {
+    "refundId": "0199a1c5-8888-7abc-8def-000000000008",
+    "paymentId": "0199a1c4-7777-7abc-8def-000000000007",
+    "transferId": "0199a1c0-0000-7000-8000-00000000abcd",
+    "amount": {
+      "amountMinor": 51299,
+      "currency": "CAD"
+    },
+    "refundedAt": "2026-09-27T09:00:00Z"
+  }
+}

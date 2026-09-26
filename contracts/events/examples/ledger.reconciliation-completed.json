@@ -1,0 +1,18 @@
+{
+  "eventId": "0199a1d0-0000-7000-8000-000000000001",
+  "eventType": "ledger.reconciliation-completed",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-26T10:12:03Z",
+  "producer": "ledger-service",
+  "correlationId": "req_01J8Z6Q4N5",
+  "causationId": null,
+  "data": {
+    "runId": "0199a1c7-aaaa-7abc-8def-00000000000a",
+    "runDate": "2026-09-26",
+    "partner": "mock",
+    "status": "matched",
+    "totalItems": 42,
+    "discrepancyCount": 0,
+    "finishedAt": "2026-09-27T02:05:00Z"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "eventId": "0199a1d0-0000-7000-8000-000000000001",
+  "eventType": "compliance.review-decided",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-26T10:12:03Z",
+  "producer": "compliance-service",
+  "correlationId": "req_01J8Z6Q4N5",
+  "causationId": null,
+  "data": {
+    "reviewCaseId": "0199a1c2-4444-7abc-8def-000000000004",
+    "transferId": "0199a1c0-0000-7000-8000-00000000abcd",
+    "decision": "approve",
+    "decidedBy": "0199a1a0-5555-7abc-8def-000000000005",
+    "decidedAt": "2026-09-26T11:00:00Z"
+  }
+}

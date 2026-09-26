@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/kyc.rejected.schema.json",
+  "title": "kyc.rejected (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "kyc.rejected"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "userId",
+        "kycRecordId",
+        "reasonCode",
+        "canResubmit",
+        "rejectedAt"
+      ],
+      "properties": {
+        "userId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "kycRecordId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "reasonCode": {
+          "enum": [
+            "document_unreadable",
+            "document_expired",
+            "selfie_mismatch",
+            "suspected_fraud",
+            "other"
+          ]
+        },
+        "canResubmit": {
+          "type": "boolean"
+        },
+        "rejectedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

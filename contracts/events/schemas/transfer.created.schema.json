@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/transfer.created.schema.json",
+  "title": "transfer.created (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "transfer.created"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transferId",
+        "reference",
+        "userId",
+        "recipientId",
+        "corridorCode",
+        "fundingMethod",
+        "sendAmount",
+        "fee",
+        "cardSurcharge",
+        "totalCharge",
+        "receiveAmount",
+        "midRate",
+        "offerRate",
+        "rateLockExpiresAt"
+      ],
+      "properties": {
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "reference": {
+          "$ref": "common.schema.json#/$defs/transferReference"
+        },
+        "userId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "recipientId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "corridorCode": {
+          "$ref": "common.schema.json#/$defs/corridorCode"
+        },
+        "fundingMethod": {
+          "$ref": "common.schema.json#/$defs/fundingMethod"
+        },
+        "sendAmount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "cardSurcharge": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "totalCharge": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "receiveAmount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "midRate": {
+          "$ref": "common.schema.json#/$defs/rate"
+        },
+        "offerRate": {
+          "$ref": "common.schema.json#/$defs/rate"
+        },
+        "rateLockExpiresAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

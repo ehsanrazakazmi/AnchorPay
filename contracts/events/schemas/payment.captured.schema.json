@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/payment.captured.schema.json",
+  "title": "payment.captured (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "payment.captured"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paymentId",
+        "transferId",
+        "method",
+        "amount",
+        "fee",
+        "cardSurcharge",
+        "capturedAt"
+      ],
+      "properties": {
+        "paymentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "method": {
+          "$ref": "common.schema.json#/$defs/fundingMethod"
+        },
+        "amount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "fee": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "cardSurcharge": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "capturedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/fx.lock-expired.schema.json",
+  "title": "fx.lock-expired (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "fx.lock-expired"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lockId",
+        "transferId",
+        "expiredAt"
+      ],
+      "properties": {
+        "lockId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "expiredAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

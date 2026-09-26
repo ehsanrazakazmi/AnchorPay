@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/payment.failed.schema.json",
+  "title": "payment.failed (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "payment.failed"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paymentId",
+        "transferId",
+        "stage",
+        "failureCode",
+        "failedAt"
+      ],
+      "properties": {
+        "paymentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "stage": {
+          "enum": [
+            "authorization",
+            "capture"
+          ]
+        },
+        "failureCode": {
+          "enum": [
+            "card_declined",
+            "insufficient_funds",
+            "authorization_expired",
+            "bank_debit_returned",
+            "provider_error"
+          ]
+        },
+        "failedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

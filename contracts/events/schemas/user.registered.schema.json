@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/user.registered.schema.json",
+  "title": "user.registered (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "user.registered"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "userId",
+        "country",
+        "role",
+        "registeredAt"
+      ],
+      "properties": {
+        "userId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "country": {
+          "$ref": "common.schema.json#/$defs/country"
+        },
+        "role": {
+          "enum": [
+            "customer",
+            "agent",
+            "compliance_officer",
+            "admin"
+          ]
+        },
+        "registeredAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

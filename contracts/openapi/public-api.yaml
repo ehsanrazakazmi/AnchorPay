@@ -1,0 +1,3165 @@
+openapi: 3.1.0
+info:
+  title: AnchorPay Public API
+  version: 1.0.0
+  summary: Customer, staff and webhook API exposed through the API gateway.
+  description: |
+    All client traffic enters through the API gateway, which validates the JWT, applies rate limits,
+    adds `X-Request-Id` and routes each path to the service named in `x-owner-service`.
+
+    **Conventions** (frozen at Foundation sign-off)
+    - JSON bodies use camelCase. Money is `{ amountMinor, currency }` in integer minor units; rates are decimal strings.
+    - Every error is `application/problem+json` with a stable `code` (see `ErrorCode`).
+    - `x-roles` lists the roles allowed to call an operation. Customers only ever see their own resources.
+    - Versioning: breaking changes go to `/v2`; additive changes (new optional fields, new endpoints) stay in `/v1`.
+    - Access tokens expire after 15 minutes; refresh tokens after 30 days (rotated on every refresh).
+  contact:
+    name: AnchorPay engineering
+  license:
+    name: Proprietary — Axelytix
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local API gateway
+security:
+  - bearerAuth: []
+tags:
+  - name: Health
+  - name: Auth
+    description: Registration, login, tokens, verification, passwords (identity-service).
+  - name: Profile
+    description: The signed-in user's own profile (identity-service).
+  - name: Recipients
+    description: Address book of people the user sends money to (identity-service).
+  - name: Pricing
+    description: Corridors and quotes (fx-service).
+  - name: Transfers
+    description: Create, track and manage transfers (transfer-service).
+  - name: KYC
+    description: Identity verification (compliance-service).
+  - name: Notifications
+    description: SMS / email preferences (notification-service).
+  - name: Admin - Compliance
+    description: Review queue, KYC review, AML configuration (compliance-service). Staff only.
+  - name: Admin - Reports
+    description: FINTRAC report drafts and regulatory summaries. Staff only.
+  - name: Admin - Operations
+    description: Transfers, payouts, reconciliation, ledger, audit log, users. Staff only.
+  - name: Webhooks
+    description: Callbacks from payment, payout and KYC providers (signature-verified, no JWT).
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Gateway and downstream service health
+      security: []
+      x-owner-service: gateway
+      x-roles: [public]
+      responses:
+        '200':
+          description: Health report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        '503':
+          description: One or more critical dependencies are down
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  # ---------------------------------------------------------------- auth
+  /v1/users:
+    post:
+      tags: [Auth]
+      operationId: registerUser
+      summary: Register a new customer account
+      description: >-
+        Creates a customer at KYC tier 0 and sends an email verification link and a phone code.
+        Only Canadian residents can register while the send side is Canada-only.
+      security: []
+      x-owner-service: identity-service
+      x-roles: [public]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: Log in with email and password
+      description: >-
+        Returns a 15-minute access token and a 30-day refresh token. After 5 failed attempts the account is locked
+        for 15 minutes (ACCOUNT_LOCKED).
+      security: []
+      x-owner-service: identity-service
+      x-roles: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '423':
+          description: Account temporarily locked after too many failed attempts (ACCOUNT_LOCKED).
+          content:
+            application/problem+json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Problem'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshToken
+      summary: Exchange a refresh token for a new token pair
+      description: The old refresh token is revoked (rotation). Re-using a revoked token revokes the whole session.
+      security: []
+      x-owner-service: identity-service
+      x-roles: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Revoke the refresh token (log out this device)
+      x-owner-service: identity-service
+      x-roles: [customer, agent, compliance_officer, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Logged out
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/verify-email:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      summary: Confirm the email address with the token from the verification link
+      security: []
+      x-owner-service: identity-service
+      x-roles: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '204':
+          description: Email verified
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/verify-phone:
+    post:
+      tags: [Auth]
+      operationId: verifyPhone
+      summary: Confirm the phone number with the 6-digit SMS code
+      x-owner-service: identity-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+      responses:
+        '204':
+          description: Phone verified
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/resend-verification:
+    post:
+      tags: [Auth]
+      operationId: resendVerification
+      summary: Resend the email link or SMS code
+      x-owner-service: identity-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channel]
+              properties:
+                channel:
+                  type: string
+                  enum: [email, phone]
+      responses:
+        '204':
+          description: Sent (limited to 1 per minute, 5 per day)
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Email a password reset link
+      description: Always returns 204, whether or not the email exists, so accounts can't be discovered.
+      security: []
+      x-owner-service: identity-service
+      x-roles: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '204':
+          description: Request accepted
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Set a new password using the reset token (valid 30 minutes, single use)
+      security: []
+      x-owner-service: identity-service
+      x-roles: [public]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  $ref: '#/components/schemas/Password'
+      responses:
+        '204':
+          description: Password changed; all sessions revoked
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- profile
+  /v1/users/me:
+    get:
+      tags: [Profile]
+      operationId: getMe
+      summary: Get the signed-in user's profile
+      x-owner-service: identity-service
+      x-roles: [customer, agent, compliance_officer, admin]
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    patch:
+      tags: [Profile]
+      operationId: updateMe
+      summary: Update phone or address
+      description: >-
+        Name and date of birth can't be changed here because they are tied to identity verification (contact support).
+        Changing the phone number requires verifying the new number.
+      x-owner-service: identity-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMeRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/users/me/change-password:
+    post:
+      tags: [Profile]
+      operationId: changePassword
+      summary: Change password (requires the current password)
+      x-owner-service: identity-service
+      x-roles: [customer, agent, compliance_officer, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  $ref: '#/components/schemas/Password'
+      responses:
+        '204':
+          description: Changed; other sessions revoked
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- recipients
+  /v1/recipients:
+    get:
+      tags: [Recipients]
+      operationId: listRecipients
+      summary: List saved recipients
+      x-owner-service: identity-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: Recipients (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recipient'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    post:
+      tags: [Recipients]
+      operationId: createRecipient
+      summary: Save a new recipient
+      x-owner-service: identity-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientCreate'
+      responses:
+        '201':
+          description: Recipient saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/recipients/{recipientId}:
+    parameters:
+      - $ref: '#/components/parameters/RecipientId'
+    get:
+      tags: [Recipients]
+      operationId: getRecipient
+      summary: Get one recipient
+      x-owner-service: identity-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: Recipient
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    patch:
+      tags: [Recipients]
+      operationId: updateRecipient
+      summary: Update nickname, relationship or phone
+      description: Payout details (bank account / wallet) are immutable — save a new recipient instead.
+      x-owner-service: identity-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecipientUpdate'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Recipient'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    delete:
+      tags: [Recipients]
+      operationId: deleteRecipient
+      summary: Remove a recipient from the address book (soft delete; past transfers keep it)
+      x-owner-service: identity-service
+      x-roles: [customer]
+      responses:
+        '204':
+          description: Removed
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- pricing
+  /v1/corridors:
+    get:
+      tags: [Pricing]
+      operationId: listCorridors
+      summary: Countries/currencies you can send to, with fees and limits
+      security: []
+      x-owner-service: fx-service
+      x-roles: [public]
+      responses:
+        '200':
+          description: Enabled corridors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Corridor'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/quotes:
+    post:
+      tags: [Pricing]
+      operationId: createQuote
+      summary: Price a transfer (live rate, fee, surcharge, exact amount received)
+      description: >-
+        Returns an indicative quote valid for 60 seconds. The UI refreshes it every 30 seconds while the user is on
+        the amount screen. Anonymous users may request quotes (landing-page calculator).
+      security:
+        - {}
+        - bearerAuth: []
+      x-owner-service: fx-service
+      x-roles: [public, customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteRequest'
+      responses:
+        '200':
+          description: Quote
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Quote'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- transfers
+  /v1/transfers:
+    post:
+      tags: [Transfers]
+      operationId: createTransfer
+      summary: Confirm a transfer (locks the quoted rate for 30 minutes)
+      description: |
+        Flow (payment-first, rate locked immediately):
+        1. Validates KYC tier and limits (422 KYC_REQUIRED / LIMIT_EXCEEDED) and that the quote is still valid (409 QUOTE_EXPIRED).
+        2. Creates the transfer (INITIATED) and locks the quote's rate (FX_LOCKED).
+        3. Starts a payment **authorisation** — funds are held, not charged. `paymentAction` says what the client must do.
+        4. Once authorised, screening runs; on pass the held payment is captured and the payout is sent.
+      x-owner-service: transfer-service
+      x-roles: [customer]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/IdempotencyKey'
+        - $ref: 'common.yaml#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '201':
+          description: Transfer created and rate locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransferResponse'
+        '200':
+          description: Same Idempotency-Key and body as an earlier request — the original transfer is returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTransferResponse'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        '429':
+          $ref: 'common.yaml#/components/responses/TooManyRequests'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    get:
+      tags: [Transfers]
+      operationId: listTransfers
+      summary: Transfer history with filters
+      x-owner-service: transfer-service
+      x-roles: [customer]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          description: One or more statuses (repeat the parameter).
+          schema:
+            type: array
+            items:
+              $ref: 'common.yaml#/components/schemas/TransferStatus'
+          style: form
+          explode: true
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: minAmountMinor
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - name: maxAmountMinor
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Page of transfers (newest first)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferPage'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/transfers/{transferId}:
+    parameters:
+      - $ref: '#/components/parameters/TransferId'
+    get:
+      tags: [Transfers]
+      operationId: getTransfer
+      summary: Transfer details and progress timeline
+      description: The tracking screen polls this every 5 seconds while the transfer is not in a final state.
+      x-owner-service: transfer-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: Transfer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/transfers/{transferId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/TransferId'
+    post:
+      tags: [Transfers]
+      operationId: cancelTransfer
+      summary: Cancel a transfer before money is captured
+      description: Allowed in FX_LOCKED, ON_HOLD and AWAITING_RECONFIRM. The payment hold is released.
+      x-owner-service: transfer-service
+      x-roles: [customer]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/transfers/{transferId}/requote:
+    parameters:
+      - $ref: '#/components/parameters/TransferId'
+    post:
+      tags: [Transfers]
+      operationId: requoteTransfer
+      summary: Get a fresh rate for a transfer in AWAITING_RECONFIRM
+      description: The CAD amount charged stays the same; only the amount the recipient receives changes.
+      x-owner-service: transfer-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: New quote to show the user
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Quote'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/transfers/{transferId}/reconfirm:
+    parameters:
+      - $ref: '#/components/parameters/TransferId'
+    post:
+      tags: [Transfers]
+      operationId: reconfirmTransfer
+      summary: Accept the new rate and continue the transfer
+      x-owner-service: transfer-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [quoteId]
+              properties:
+                quoteId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Rate re-locked; payment captured and payout started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- KYC
+  /v1/kyc:
+    get:
+      tags: [KYC]
+      operationId: getKycStatus
+      summary: Current KYC tier, limits and usage
+      x-owner-service: compliance-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: KYC status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycOverview'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/kyc/submissions:
+    post:
+      tags: [KYC]
+      operationId: startKycSubmission
+      summary: Start verification for a higher tier
+      x-owner-service: compliance-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier, documentType, documentCountry]
+              properties:
+                tier:
+                  type: integer
+                  enum: [2, 3]
+                documentType:
+                  type: string
+                  enum: [drivers_licence, passport, national_id, pr_card]
+                documentCountry:
+                  $ref: 'common.yaml#/components/schemas/Country'
+      responses:
+        '201':
+          description: Submission started; upload the listed documents next
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycSubmission'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/kyc/submissions/{submissionId}:
+    parameters:
+      - $ref: '#/components/parameters/SubmissionId'
+    get:
+      tags: [KYC]
+      operationId: getKycSubmission
+      summary: Status of one submission
+      x-owner-service: compliance-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: Submission
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycSubmission'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/kyc/submissions/{submissionId}/documents/{kind}:
+    parameters:
+      - $ref: '#/components/parameters/SubmissionId'
+      - name: kind
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [id_front, id_back, selfie, proof_of_address, proof_of_income]
+    put:
+      tags: [KYC]
+      operationId: uploadKycDocument
+      summary: Upload one document image (camera capture or file)
+      description: >-
+        JPEG, PNG or PDF, max 10 MB. The file is forwarded straight to the KYC vendor; AnchorPay stores only the
+        vendor's file reference, never the image.
+      x-owner-service: compliance-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  contentMediaType: application/octet-stream
+      responses:
+        '204':
+          description: Uploaded
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '413':
+          description: File larger than 10 MB
+          content:
+            application/problem+json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Problem'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/kyc/submissions/{submissionId}/submit:
+    parameters:
+      - $ref: '#/components/parameters/SubmissionId'
+    post:
+      tags: [KYC]
+      operationId: submitKyc
+      summary: Send the uploaded documents for verification
+      x-owner-service: compliance-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: Submitted (status SUBMITTED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycSubmission'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- notifications
+  /v1/notification-preferences:
+    get:
+      tags: [Notifications]
+      operationId: getNotificationPreferences
+      summary: Which events send SMS and/or email
+      x-owner-service: notification-service
+      x-roles: [customer]
+      responses:
+        '200':
+          description: Preferences for every event type (defaults filled in)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    put:
+      tags: [Notifications]
+      operationId: updateNotificationPreferences
+      summary: Replace notification preferences
+      description: security_alert emails can't be turned off.
+      x-owner-service: notification-service
+      x-roles: [customer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotificationPreferences'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationPreferences'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- admin: compliance
+  /v1/admin/review-cases:
+    get:
+      tags: [Admin - Compliance]
+      operationId: listReviewCases
+      summary: Manual review queue
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, in_review, approved, rejected]
+        - name: priority
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [low, normal, high]
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Cases (oldest open first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReviewCase'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/review-cases/{caseId}:
+    parameters:
+      - $ref: '#/components/parameters/CaseId'
+    get:
+      tags: [Admin - Compliance]
+      operationId: getReviewCase
+      summary: Case with screening details, transfer and customer summary
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      responses:
+        '200':
+          description: Case
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCaseDetail'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/review-cases/{caseId}/assign:
+    parameters:
+      - $ref: '#/components/parameters/CaseId'
+    post:
+      tags: [Admin - Compliance]
+      operationId: assignReviewCase
+      summary: Take the case (status in_review, assigned to the caller)
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      responses:
+        '200':
+          description: Assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCase'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/review-cases/{caseId}/decision:
+    parameters:
+      - $ref: '#/components/parameters/CaseId'
+    post:
+      tags: [Admin - Compliance]
+      operationId: decideReviewCase
+      summary: Approve or reject a held transfer (with a mandatory audit note)
+      description: Emits compliance.review-decided. Rejecting offers to draft an STR for the Compliance Officer.
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Decision'
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCase'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/kyc-submissions:
+    get:
+      tags: [Admin - Compliance]
+      operationId: listKycSubmissions
+      summary: KYC submissions needing manual review
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/KycStatus'
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Submissions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/KycSubmission'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/kyc-submissions/{submissionId}/decision:
+    parameters:
+      - $ref: '#/components/parameters/SubmissionId'
+    post:
+      tags: [Admin - Compliance]
+      operationId: decideKycSubmission
+      summary: Approve or reject a KYC submission the vendor could not decide
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/Decision'
+                - type: object
+                  properties:
+                    reasonCode:
+                      type: string
+                      enum: [document_unreadable, document_expired, selfie_mismatch, suspected_fraud, other]
+      responses:
+        '200':
+          description: Decided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KycSubmission'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/aml-rules:
+    get:
+      tags: [Admin - Compliance]
+      operationId: listAmlRules
+      summary: AML rules and their parameters
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      responses:
+        '200':
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AmlRule'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/aml-rules/{ruleCode}:
+    parameters:
+      - name: ruleCode
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: '^[A-Z0-9_]+$'
+    patch:
+      tags: [Admin - Compliance]
+      operationId: updateAmlRule
+      summary: Tune a rule without a code change (audited)
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                enabled:
+                  type: boolean
+                action:
+                  type: string
+                  enum: [block, flag, score, report]
+                scoreWeight:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                params:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Updated rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AmlRule'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/risk-thresholds:
+    get:
+      tags: [Admin - Compliance]
+      operationId: getRiskThresholds
+      summary: Fraud score routing thresholds
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      responses:
+        '200':
+          description: Thresholds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskThresholds'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+    put:
+      tags: [Admin - Compliance]
+      operationId: updateRiskThresholds
+      summary: Change thresholds (auto-approve below X, flag X..Y, block at/above Y)
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RiskThresholds'
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RiskThresholds'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- admin: reports
+  /v1/admin/reports:
+    get:
+      tags: [Admin - Reports]
+      operationId: listRegulatoryReports
+      summary: FINTRAC report drafts (STR, international EFT)
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      parameters:
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [STR, EFTR]
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, pending_review, approved, filed, rejected]
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Reports (soonest due first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RegulatoryReport'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reports/{reportId}:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [Admin - Reports]
+      operationId: getRegulatoryReport
+      summary: Report draft with all pre-filled fields
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      responses:
+        '200':
+          description: Report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegulatoryReport'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reports/{reportId}/document:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    get:
+      tags: [Admin - Reports]
+      operationId: downloadRegulatoryReport
+      summary: Download the generated PDF
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer, admin]
+      responses:
+        '200':
+          description: PDF document
+          content:
+            application/pdf:
+              schema:
+                type: string
+                contentMediaType: application/pdf
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reports/{reportId}/review:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    post:
+      tags: [Admin - Reports]
+      operationId: reviewRegulatoryReport
+      summary: Compliance Officer approves or rejects a draft before filing
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Decision'
+      responses:
+        '200':
+          description: Reviewed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegulatoryReport'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reports/{reportId}/mark-filed:
+    parameters:
+      - $ref: '#/components/parameters/ReportId'
+    post:
+      tags: [Admin - Reports]
+      operationId: markRegulatoryReportFiled
+      summary: Record that the report was filed with FINTRAC (filing is done by the Compliance Officer)
+      x-owner-service: compliance-service
+      x-roles: [compliance_officer]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filingReference, filedAt]
+              properties:
+                filingReference:
+                  type: string
+                  minLength: 1
+                filedAt:
+                  $ref: 'common.yaml#/components/schemas/Timestamp'
+      responses:
+        '200':
+          description: Marked as filed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegulatoryReport'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reports/daily-summary:
+    get:
+      tags: [Admin - Reports]
+      operationId: getDailyRegulatorySummary
+      summary: Daily regulatory report — volume by corridor, counts, flagged, reports raised
+      x-owner-service: ledger-service
+      x-roles: [compliance_officer, admin]
+      parameters:
+        - name: date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Summary for the day (UTC)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DailySummary'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- admin: operations
+  /v1/admin/transfers:
+    get:
+      tags: [Admin - Operations]
+      operationId: adminSearchTransfers
+      summary: Search all transfers
+      x-owner-service: transfer-service
+      x-roles: [agent, compliance_officer, admin]
+      parameters:
+        - name: reference
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/TransferReference'
+        - name: userId
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/Uuid'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: 'common.yaml#/components/schemas/TransferStatus'
+          style: form
+          explode: true
+        - name: from
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Transfers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferPage'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/transfers/{transferId}:
+    parameters:
+      - $ref: '#/components/parameters/TransferId'
+    get:
+      tags: [Admin - Operations]
+      operationId: adminGetTransfer
+      summary: Full transfer record including status history
+      x-owner-service: transfer-service
+      x-roles: [agent, compliance_officer, admin]
+      responses:
+        '200':
+          description: Transfer with history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/payouts:
+    get:
+      tags: [Admin - Operations]
+      operationId: adminListPayouts
+      summary: Payouts, e.g. the manual queue (status=manual_review)
+      x-owner-service: payment-service
+      x-roles: [agent, admin]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, dispatched, completed, failed, manual_review]
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Payouts
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payout'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/payouts/{payoutId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/PayoutId'
+    post:
+      tags: [Admin - Operations]
+      operationId: adminRetryPayout
+      summary: Retry a payout from the manual queue
+      x-owner-service: payment-service
+      x-roles: [agent, admin]
+      responses:
+        '202':
+          description: Retry scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/payouts/{payoutId}/fail:
+    parameters:
+      - $ref: '#/components/parameters/PayoutId'
+    post:
+      tags: [Admin - Operations]
+      operationId: adminFailPayout
+      summary: Give up on a payout — the transfer fails and the sender is refunded
+      x-owner-service: payment-service
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                note:
+                  type: string
+                  minLength: 10
+      responses:
+        '200':
+          description: Payout failed; refund started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payout'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reconciliation-runs:
+    get:
+      tags: [Admin - Operations]
+      operationId: listReconciliationRuns
+      summary: Nightly reconciliation results
+      x-owner-service: ledger-service
+      x-roles: [admin]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Runs (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReconciliationRun'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reconciliation-runs/{runId}/items:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+    get:
+      tags: [Admin - Operations]
+      operationId: listReconciliationItems
+      summary: Discrepancies found in one run
+      x-owner-service: ledger-service
+      x-roles: [admin]
+      responses:
+        '200':
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReconciliationItem'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/reconciliation-items/{itemId}/resolve:
+    parameters:
+      - name: itemId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      tags: [Admin - Operations]
+      operationId: resolveReconciliationItem
+      summary: Mark a discrepancy as resolved (with a note)
+      x-owner-service: ledger-service
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                note:
+                  type: string
+                  minLength: 10
+      responses:
+        '200':
+          description: Resolved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationItem'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/ledger/balances:
+    get:
+      tags: [Admin - Operations]
+      operationId: getLedgerBalances
+      summary: Current balance of every ledger account
+      x-owner-service: ledger-service
+      x-roles: [admin]
+      responses:
+        '200':
+          description: Balances
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, asOf]
+                properties:
+                  asOf:
+                    $ref: 'common.yaml#/components/schemas/Timestamp'
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LedgerBalance'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/audit-log:
+    get:
+      tags: [Admin - Operations]
+      operationId: searchAuditLog
+      summary: Search the immutable audit trail
+      x-owner-service: ledger-service
+      x-roles: [compliance_officer, admin]
+      parameters:
+        - name: entityType
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: actorId
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: from
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/Timestamp'
+        - name: to
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/Timestamp'
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Entries (newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditEntry'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/users:
+    get:
+      tags: [Admin - Operations]
+      operationId: adminListUsers
+      summary: Find users (exact email or phone match, or by role/status)
+      x-owner-service: identity-service
+      x-roles: [agent, compliance_officer, admin]
+      parameters:
+        - name: email
+          in: query
+          required: false
+          schema:
+            type: string
+            format: email
+        - name: phone
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: role
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/Role'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [active, locked, suspended, closed]
+        - $ref: 'common.yaml#/components/parameters/Page'
+        - $ref: 'common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Users
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, pageInfo]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  pageInfo:
+                    $ref: 'common.yaml#/components/schemas/PageInfo'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+    patch:
+      tags: [Admin - Operations]
+      operationId: adminUpdateUser
+      summary: Change a user's role or status (admin only, audited)
+      x-owner-service: identity-service
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                role:
+                  $ref: 'common.yaml#/components/schemas/Role'
+                status:
+                  type: string
+                  enum: [active, suspended, closed]
+                note:
+                  type: string
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /v1/admin/corridors/{corridorCode}:
+    parameters:
+      - name: corridorCode
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+    patch:
+      tags: [Admin - Operations]
+      operationId: adminUpdateCorridor
+      summary: Change a corridor's spread, fees, limits or enable/disable it (audited)
+      x-owner-service: fx-service
+      x-roles: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              minProperties: 1
+              properties:
+                spreadPercent:
+                  $ref: 'common.yaml#/components/schemas/Percent'
+                fixedFee:
+                  $ref: 'common.yaml#/components/schemas/Money'
+                cardSurchargePercent:
+                  $ref: 'common.yaml#/components/schemas/Percent'
+                minSend:
+                  $ref: 'common.yaml#/components/schemas/Money'
+                maxSend:
+                  $ref: 'common.yaml#/components/schemas/Money'
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated corridor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Corridor'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- webhooks
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      operationId: stripeWebhook
+      summary: Stripe payment events (test mode)
+      description: Verified with the Stripe-Signature header and STRIPE_WEBHOOK_SECRET. Duplicate event ids are ignored.
+      security:
+        - stripeSignature: []
+      x-owner-service: payment-service
+      x-roles: [provider]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '400':
+          $ref: '#/components/responses/InvalidSignature'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /webhooks/payout-partner:
+    post:
+      tags: [Webhooks]
+      operationId: payoutPartnerWebhook
+      summary: Payout status updates (mock partner locally; Thunes/Flutterwave later)
+      security:
+        - providerSignature: []
+      x-owner-service: payment-service
+      x-roles: [provider]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayoutPartnerEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '400':
+          $ref: '#/components/responses/InvalidSignature'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /webhooks/kyc-vendor:
+    post:
+      tags: [Webhooks]
+      operationId: kycVendorWebhook
+      summary: KYC verification results (mock vendor locally; Jumio/Onfido later)
+      security:
+        - providerSignature: []
+      x-owner-service: compliance-service
+      x-roles: [provider]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycVendorEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '400':
+          $ref: '#/components/responses/InvalidSignature'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'RS256 access token from /v1/auth/login. Claims: sub (user id), role, kyc (tier), exp (15 min).'
+    stripeSignature:
+      type: apiKey
+      in: header
+      name: Stripe-Signature
+    providerSignature:
+      type: apiKey
+      in: header
+      name: X-Signature
+      description: 'Hex HMAC-SHA256 of "<X-Timestamp>.<raw body>" with the provider webhook secret. Rejected if older than 5 minutes.'
+
+  parameters:
+    TransferId:
+      name: transferId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    RecipientId:
+      name: recipientId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    SubmissionId:
+      name: submissionId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    CaseId:
+      name: caseId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    ReportId:
+      name: reportId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    PayoutId:
+      name: payoutId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+
+  responses:
+    WebhookAccepted:
+      description: Event received (also returned for duplicates)
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [received]
+            properties:
+              received:
+                type: boolean
+                const: true
+    InvalidSignature:
+      description: Signature missing, invalid or too old (INVALID_SIGNATURE)
+      content:
+        application/problem+json:
+          schema:
+            $ref: 'common.yaml#/components/schemas/Problem'
+
+  schemas:
+    Health:
+      type: object
+      required: [status, checkedAt, services]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, down]
+        checkedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        services:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, down]
+
+    Password:
+      type: string
+      minLength: 12
+      maxLength: 128
+      writeOnly: true
+      description: At least 12 characters. Checked against a list of common/breached passwords.
+
+    Address:
+      type: object
+      required: [line1, city, province, postalCode]
+      properties:
+        line1:
+          type: string
+          maxLength: 200
+        line2:
+          type: string
+          maxLength: 200
+        city:
+          type: string
+          maxLength: 100
+        province:
+          type: string
+          enum: [AB, BC, MB, NB, NL, NS, NT, NU, 'ON', PE, QC, SK, YT]
+        postalCode:
+          type: string
+          pattern: '^[A-Za-z][0-9][A-Za-z] ?[0-9][A-Za-z][0-9]$'
+
+    RegisterRequest:
+      type: object
+      required: [email, phone, password, fullName, dateOfBirth, country, acceptTerms]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        phone:
+          type: string
+          description: E.164 format.
+          pattern: '^\+[1-9][0-9]{7,14}$'
+          examples: ['+14165550123']
+        password:
+          $ref: '#/components/schemas/Password'
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 150
+          description: As shown on government ID.
+        dateOfBirth:
+          type: string
+          format: date
+          description: Must be 18 or older.
+        address:
+          $ref: '#/components/schemas/Address'
+        country:
+          type: string
+          const: CA
+        acceptTerms:
+          type: boolean
+          const: true
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          writeOnly: true
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, tokenType, expiresIn, refreshExpiresIn]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        tokenType:
+          type: string
+          const: Bearer
+        expiresIn:
+          type: integer
+          description: Seconds (900).
+        refreshExpiresIn:
+          type: integer
+          description: Seconds (2592000).
+
+    User:
+      type: object
+      required: [id, email, phone, fullName, country, role, status, emailVerified, phoneVerified, createdAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        fullName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        address:
+          $ref: '#/components/schemas/Address'
+        country:
+          $ref: 'common.yaml#/components/schemas/Country'
+        role:
+          $ref: 'common.yaml#/components/schemas/Role'
+        status:
+          type: string
+          enum: [active, locked, suspended, closed]
+        emailVerified:
+          type: boolean
+        phoneVerified:
+          type: boolean
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    UpdateMeRequest:
+      type: object
+      minProperties: 1
+      properties:
+        phone:
+          type: string
+          pattern: '^\+[1-9][0-9]{7,14}$'
+        address:
+          $ref: '#/components/schemas/Address'
+
+    Recipient:
+      type: object
+      required: [id, fullName, country, currency, payoutMethod, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        nickname:
+          type: string
+        fullName:
+          type: string
+        phone:
+          type: string
+        country:
+          $ref: 'common.yaml#/components/schemas/Country'
+        currency:
+          $ref: 'common.yaml#/components/schemas/Currency'
+        relationship:
+          type: string
+        payoutMethod:
+          $ref: 'common.yaml#/components/schemas/PayoutMethod'
+        bankAccount:
+          type: object
+          required: [bankName, accountNumberMasked]
+          properties:
+            bankName:
+              type: string
+            bankCode:
+              type: string
+            accountNumberMasked:
+              type: string
+              examples: ['•••• 4521']
+        mobileWallet:
+          type: object
+          required: [provider, walletNumberMasked]
+          properties:
+            provider:
+              type: string
+              enum: [jazzcash, easypaisa]
+            walletNumberMasked:
+              type: string
+              examples: ['+92 3•• ••• 4521']
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    RecipientCreate:
+      type: object
+      description: Provide bankAccount when payoutMethod is bank_account, mobileWallet when it is mobile_wallet.
+      required: [fullName, country, currency, payoutMethod]
+      properties:
+        nickname:
+          type: string
+          maxLength: 60
+        fullName:
+          type: string
+          minLength: 2
+          maxLength: 150
+        phone:
+          type: string
+          pattern: '^\+[1-9][0-9]{7,14}$'
+        country:
+          $ref: 'common.yaml#/components/schemas/Country'
+        currency:
+          $ref: 'common.yaml#/components/schemas/Currency'
+        relationship:
+          type: string
+          enum: [family, friend, spouse, parent, child, sibling, business, self, other]
+        payoutMethod:
+          $ref: 'common.yaml#/components/schemas/PayoutMethod'
+        bankAccount:
+          type: object
+          required: [bankName, accountNumber]
+          properties:
+            bankName:
+              type: string
+            bankCode:
+              type: string
+            accountNumber:
+              type: string
+              description: Account number or IBAN (Pakistan IBAN is 24 characters, starting PK).
+              minLength: 6
+              maxLength: 34
+              writeOnly: true
+        mobileWallet:
+          type: object
+          required: [provider, walletNumber]
+          properties:
+            provider:
+              type: string
+              enum: [jazzcash, easypaisa]
+            walletNumber:
+              type: string
+              pattern: '^\+92[0-9]{10}$'
+              writeOnly: true
+      oneOf:
+        - required: [bankAccount]
+          properties:
+            payoutMethod:
+              const: bank_account
+        - required: [mobileWallet]
+          properties:
+            payoutMethod:
+              const: mobile_wallet
+
+    RecipientUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        nickname:
+          type: string
+          maxLength: 60
+        relationship:
+          type: string
+          enum: [family, friend, spouse, parent, child, sibling, business, self, other]
+        phone:
+          type: string
+          pattern: '^\+[1-9][0-9]{7,14}$'
+
+    Corridor:
+      type: object
+      required: [code, sendCountry, sendCurrency, receiveCountry, receiveCurrency, payoutMethods, minSend, maxSend,
+                 fixedFee, spreadPercent, cardSurchargePercent, deliveryEstimate, enabled]
+      properties:
+        code:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+        sendCountry:
+          $ref: 'common.yaml#/components/schemas/Country'
+        sendCurrency:
+          $ref: 'common.yaml#/components/schemas/Currency'
+        receiveCountry:
+          $ref: 'common.yaml#/components/schemas/Country'
+        receiveCurrency:
+          $ref: 'common.yaml#/components/schemas/Currency'
+        payoutMethods:
+          type: array
+          items:
+            $ref: 'common.yaml#/components/schemas/PayoutMethod'
+        minSend:
+          $ref: 'common.yaml#/components/schemas/Money'
+        maxSend:
+          $ref: 'common.yaml#/components/schemas/Money'
+        fixedFee:
+          $ref: 'common.yaml#/components/schemas/Money'
+        spreadPercent:
+          $ref: 'common.yaml#/components/schemas/Percent'
+        cardSurchargePercent:
+          $ref: 'common.yaml#/components/schemas/Percent'
+        deliveryEstimate:
+          type: string
+        enabled:
+          type: boolean
+
+    QuoteRequest:
+      type: object
+      required: [corridorCode, sendAmount, fundingMethod]
+      properties:
+        corridorCode:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+        sendAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        fundingMethod:
+          $ref: 'common.yaml#/components/schemas/FundingMethod'
+
+    CreateTransferRequest:
+      type: object
+      required: [quoteId, recipientId, purpose]
+      properties:
+        quoteId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        recipientId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        purpose:
+          $ref: 'common.yaml#/components/schemas/TransferPurpose'
+        returnUrl:
+          type: string
+          format: uri
+          description: Where the card form sends the user back after authorising.
+
+    CreateTransferResponse:
+      type: object
+      required: [transfer, paymentAction]
+      properties:
+        transfer:
+          $ref: '#/components/schemas/Transfer'
+        paymentAction:
+          $ref: 'common.yaml#/components/schemas/PaymentAction'
+
+    Transfer:
+      type: object
+      required: [id, reference, status, corridorCode, recipient, fundingMethod, purpose, sendAmount, fee, cardSurcharge,
+                 totalCharge, allowedActions, timeline, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        reference:
+          $ref: 'common.yaml#/components/schemas/TransferReference'
+        status:
+          $ref: 'common.yaml#/components/schemas/TransferStatus'
+        corridorCode:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+        recipient:
+          type: object
+          required: [id, fullName, payoutMethod, destinationMasked]
+          properties:
+            id:
+              $ref: 'common.yaml#/components/schemas/Uuid'
+            fullName:
+              type: string
+            payoutMethod:
+              $ref: 'common.yaml#/components/schemas/PayoutMethod'
+            destinationMasked:
+              type: string
+              examples: ['JazzCash +92 3•• ••• 4521']
+        fundingMethod:
+          $ref: 'common.yaml#/components/schemas/FundingMethod'
+        purpose:
+          $ref: 'common.yaml#/components/schemas/TransferPurpose'
+        sendAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        fee:
+          $ref: 'common.yaml#/components/schemas/Money'
+        cardSurcharge:
+          $ref: 'common.yaml#/components/schemas/Money'
+        totalCharge:
+          $ref: 'common.yaml#/components/schemas/Money'
+        receiveAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        midRate:
+          $ref: 'common.yaml#/components/schemas/Rate'
+        offerRate:
+          $ref: 'common.yaml#/components/schemas/Rate'
+        rateLockExpiresAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        deliveryEstimate:
+          type: string
+        failure:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+              description: Customer-friendly explanation and next steps.
+        cancelReason:
+          type: string
+        allowedActions:
+          type: array
+          description: What the customer can do now (drives the UI buttons).
+          items:
+            type: string
+            enum: [authorize_payment, cancel, reconfirm]
+        timeline:
+          type: array
+          description: Status history, oldest first.
+          items:
+            type: object
+            required: [status, at]
+            properties:
+              status:
+                $ref: 'common.yaml#/components/schemas/TransferStatus'
+              at:
+                $ref: 'common.yaml#/components/schemas/Timestamp'
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        completedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    TransferPage:
+      type: object
+      required: [data, pageInfo]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transfer'
+        pageInfo:
+          $ref: 'common.yaml#/components/schemas/PageInfo'
+
+    KycLimits:
+      type: object
+      required: [perTransfer, daily, monthly, usedLast24h, usedLast30d]
+      properties:
+        perTransfer:
+          $ref: 'common.yaml#/components/schemas/Money'
+        daily:
+          $ref: 'common.yaml#/components/schemas/Money'
+        monthly:
+          $ref: 'common.yaml#/components/schemas/Money'
+        usedLast24h:
+          $ref: 'common.yaml#/components/schemas/Money'
+        usedLast30d:
+          $ref: 'common.yaml#/components/schemas/Money'
+
+    KycOverview:
+      type: object
+      required: [tier, status, canTransact, limits]
+      properties:
+        tier:
+          $ref: 'common.yaml#/components/schemas/KycTier'
+        status:
+          $ref: 'common.yaml#/components/schemas/KycStatus'
+        canTransact:
+          type: boolean
+        limits:
+          $ref: '#/components/schemas/KycLimits'
+        nextTier:
+          type: object
+          required: [tier, requirements, limits]
+          properties:
+            tier:
+              $ref: 'common.yaml#/components/schemas/KycTier'
+            requirements:
+              type: array
+              items:
+                type: string
+            limits:
+              $ref: '#/components/schemas/KycLimits'
+        latestSubmission:
+          $ref: '#/components/schemas/KycSubmission'
+
+    KycSubmission:
+      type: object
+      required: [id, tier, status, documentType, requiredDocuments, uploadedDocuments, createdAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        userId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        tier:
+          $ref: 'common.yaml#/components/schemas/KycTier'
+        status:
+          $ref: 'common.yaml#/components/schemas/KycStatus'
+        documentType:
+          type: string
+          enum: [drivers_licence, passport, national_id, pr_card]
+        documentCountry:
+          $ref: 'common.yaml#/components/schemas/Country'
+        requiredDocuments:
+          type: array
+          items:
+            type: string
+            enum: [id_front, id_back, selfie, proof_of_address, proof_of_income]
+        uploadedDocuments:
+          type: array
+          items:
+            type: string
+            enum: [id_front, id_back, selfie, proof_of_address, proof_of_income]
+        rejectionReason:
+          type: string
+        submittedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        decidedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    NotificationPreferences:
+      type: object
+      required: [preferences]
+      properties:
+        preferences:
+          type: array
+          items:
+            type: object
+            required: [eventType, sms, email]
+            properties:
+              eventType:
+                type: string
+                enum: [transfer_created, payment_collected, transfer_on_hold, payout_dispatched, transfer_completed,
+                       transfer_failed, transfer_cancelled, transfer_refunded, rate_reconfirm_required, kyc_approved,
+                       kyc_rejected, security_alert]
+              sms:
+                type: boolean
+              email:
+                type: boolean
+
+    Decision:
+      type: object
+      required: [decision, note]
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject]
+        note:
+          type: string
+          minLength: 10
+          maxLength: 2000
+          description: Mandatory audit note explaining the decision.
+
+    ReviewCase:
+      type: object
+      required: [id, transferId, userId, reason, rulesTriggered, priority, status, createdAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferReference:
+          $ref: 'common.yaml#/components/schemas/TransferReference'
+        userId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        reason:
+          type: string
+        rulesTriggered:
+          type: array
+          items:
+            type: string
+        fraudScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        priority:
+          type: string
+          enum: [low, normal, high]
+        status:
+          type: string
+          enum: [open, in_review, approved, rejected]
+        assignedTo:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        decidedBy:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        decisionNote:
+          type: string
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        decidedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    ReviewCaseDetail:
+      allOf:
+        - $ref: '#/components/schemas/ReviewCase'
+        - type: object
+          required: [screening, transfer, customer]
+          properties:
+            screening:
+              type: object
+              required: [decision, fraudScore, events]
+              properties:
+                decision:
+                  type: string
+                  enum: [pass, flag, block]
+                fraudScore:
+                  type: integer
+                sanctionsMatches:
+                  type: array
+                  items:
+                    type: object
+                    required: [listSource, matchedName, similarity, party]
+                    properties:
+                      listSource:
+                        type: string
+                      matchedName:
+                        type: string
+                      similarity:
+                        type: number
+                      party:
+                        type: string
+                        enum: [sender, recipient]
+                events:
+                  type: array
+                  items:
+                    type: object
+                    required: [ruleCode, result]
+                    properties:
+                      ruleCode:
+                        type: string
+                      result:
+                        type: string
+                      details:
+                        type: object
+                        additionalProperties: true
+            transfer:
+              $ref: '#/components/schemas/Transfer'
+            customer:
+              type: object
+              required: [userId, fullName, kycTier, memberSince, transfersLast30d]
+              properties:
+                userId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                fullName:
+                  type: string
+                kycTier:
+                  $ref: 'common.yaml#/components/schemas/KycTier'
+                memberSince:
+                  $ref: 'common.yaml#/components/schemas/Timestamp'
+                transfersLast30d:
+                  type: integer
+
+    AmlRule:
+      type: object
+      required: [code, description, enabled, action, scoreWeight, params, updatedAt]
+      properties:
+        code:
+          type: string
+        description:
+          type: string
+        enabled:
+          type: boolean
+        action:
+          type: string
+          enum: [block, flag, score, report]
+        scoreWeight:
+          type: integer
+        params:
+          type: object
+          additionalProperties: true
+        updatedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        updatedBy:
+          type: string
+
+    RiskThresholds:
+      type: object
+      required: [autoApproveBelow, blockAtOrAbove]
+      properties:
+        autoApproveBelow:
+          type: integer
+          minimum: 0
+          maximum: 100
+        blockAtOrAbove:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    RegulatoryReport:
+      type: object
+      required: [id, reportType, trigger, status, payload, createdAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        reportType:
+          type: string
+          enum: [STR, EFTR]
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        userId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        trigger:
+          type: string
+        status:
+          type: string
+          enum: [draft, pending_review, approved, filed, rejected]
+        payload:
+          type: object
+          additionalProperties: true
+          description: Pre-filled report fields (transaction, parties, reasons for suspicion).
+        dueBy:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        reviewedBy:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        filedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        filingReference:
+          type: string
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    DailySummary:
+      type: object
+      required: [date, byCorridor, transfersCreated, transfersCompleted, transfersFlagged, strCount, eftrCount]
+      properties:
+        date:
+          type: string
+          format: date
+        byCorridor:
+          type: array
+          items:
+            type: object
+            required: [corridorCode, count, sendVolume, receiveVolume]
+            properties:
+              corridorCode:
+                $ref: 'common.yaml#/components/schemas/CorridorCode'
+              count:
+                type: integer
+              sendVolume:
+                $ref: 'common.yaml#/components/schemas/Money'
+              receiveVolume:
+                $ref: 'common.yaml#/components/schemas/Money'
+        transfersCreated:
+          type: integer
+        transfersCompleted:
+          type: integer
+        transfersFlagged:
+          type: integer
+        strCount:
+          type: integer
+        eftrCount:
+          type: integer
+
+    Payout:
+      type: object
+      required: [id, transferId, partner, method, amount, status, attempts, createdAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        partner:
+          type: string
+        partnerPayoutId:
+          type: string
+        method:
+          $ref: 'common.yaml#/components/schemas/PayoutMethod'
+        amount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        status:
+          type: string
+          enum: [pending, dispatched, completed, failed, manual_review]
+        attempts:
+          type: integer
+        lastError:
+          type: string
+        nextAttemptAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        dispatchedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        completedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    ReconciliationRun:
+      type: object
+      required: [id, runDate, partner, status, totalItems, matchedItems, discrepancyCount, startedAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        runDate:
+          type: string
+          format: date
+        partner:
+          type: string
+        status:
+          type: string
+          enum: [running, matched, discrepancies, failed]
+        totalItems:
+          type: integer
+        matchedItems:
+          type: integer
+        discrepancyCount:
+          type: integer
+        startedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        finishedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    ReconciliationItem:
+      type: object
+      required: [id, runId, issue]
+      properties:
+        id:
+          type: integer
+        runId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        payoutId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        issue:
+          type: string
+          enum: [missing_at_partner, missing_in_ledger, amount_mismatch, currency_mismatch, status_mismatch]
+        internalRecord:
+          type: object
+          additionalProperties: true
+        partnerRecord:
+          type: object
+          additionalProperties: true
+        resolvedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        resolutionNote:
+          type: string
+
+    LedgerBalance:
+      type: object
+      required: [accountCode, name, type, balance]
+      properties:
+        accountCode:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+          enum: [asset, liability, revenue, expense, equity]
+        balance:
+          $ref: 'common.yaml#/components/schemas/Money'
+
+    AuditEntry:
+      type: object
+      required: [id, occurredAt, service, actorType, action, entityType]
+      properties:
+        id:
+          type: integer
+        occurredAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        service:
+          type: string
+        actorType:
+          type: string
+          enum: [user, staff, service, system, vendor]
+        actorId:
+          type: string
+        action:
+          type: string
+        entityType:
+          type: string
+        entityId:
+          type: string
+        before:
+          type: object
+          additionalProperties: true
+        after:
+          type: object
+          additionalProperties: true
+        requestId:
+          type: string
+
+    PayoutPartnerEvent:
+      type: object
+      required: [eventId, type, partnerPayoutId, reference, occurredAt]
+      properties:
+        eventId:
+          type: string
+        type:
+          type: string
+          enum: [payout.accepted, payout.completed, payout.failed]
+        partnerPayoutId:
+          type: string
+        reference:
+          type: string
+          description: Our payout id, sent when the payout was created.
+        failureCode:
+          type: string
+        occurredAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    KycVendorEvent:
+      type: object
+      required: [eventId, type, vendorReference, occurredAt]
+      properties:
+        eventId:
+          type: string
+        type:
+          type: string
+          enum: [verification.approved, verification.rejected, verification.needs_review]
+        vendorReference:
+          type: string
+        reasonCode:
+          type: string
+        occurredAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'

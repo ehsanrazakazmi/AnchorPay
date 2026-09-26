@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/payment.refunded.schema.json",
+  "title": "payment.refunded (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "payment.refunded"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "refundId",
+        "paymentId",
+        "transferId",
+        "amount",
+        "refundedAt"
+      ],
+      "properties": {
+        "refundId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "paymentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "amount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "refundedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

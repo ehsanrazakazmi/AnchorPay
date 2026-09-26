@@ -1,0 +1,142 @@
+# AnchorPay Kafka topic catalogue — frozen at Foundation sign-off.
+# Rules (docs/kafka.md):
+#  - One topic per event type; topic name == envelope.eventType. Dots separate words: no underscores.
+#  - Message key keeps ordering per aggregate (all events of one transfer land on one partition).
+#  - Events carry ids, statuses and amounts only — never PII (names, emails, phones, account numbers).
+#    Consumers that need contact details call identity-service's internal API.
+#  - Producers write to their outbox table in the same DB transaction as the state change.
+#  - Consumers are idempotent (inbox table) and retry with backoff 1s, 5s, 30s; after that the
+#    message goes to that consumer's dead-letter topic dlq.<consumer>.
+version: 1
+defaults:
+  partitions: 3
+  replicationFactor: 1 # local single broker; production >= 3
+
+topics:
+  - name: user.registered
+    key: userId
+    producer: identity-service
+    consumers: [compliance-service, notification-service]
+    schema: schemas/user.registered.schema.json
+    description: A customer created an account (KYC tier 0).
+
+  - name: user.closed
+    key: userId
+    producer: identity-service
+    consumers: [compliance-service, notification-service]
+    schema: schemas/user.closed.schema.json
+    description: Account closed; personal data anonymised (transaction records retained 5 years).
+
+  - name: kyc.approved
+    key: userId
+    producer: compliance-service
+    consumers: [notification-service]
+    schema: schemas/kyc.approved.schema.json
+    description: Identity verified; user can transact up to the new tier limit.
+
+  - name: kyc.rejected
+    key: userId
+    producer: compliance-service
+    consumers: [notification-service]
+    schema: schemas/kyc.rejected.schema.json
+    description: Identity could not be verified.
+
+  - name: transfer.created
+    key: transferId
+    producer: transfer-service
+    consumers: [notification-service]
+    schema: schemas/transfer.created.schema.json
+    description: Sender confirmed a transfer; amounts and locked rate captured.
+
+  - name: transfer.status-changed
+    key: transferId
+    producer: transfer-service
+    consumers: [notification-service, ledger-service]
+    schema: schemas/transfer.status-changed.schema.json
+    description: Emitted on every state machine transition (drives notifications and reporting).
+
+  - name: compliance.screening-completed
+    key: transferId
+    producer: compliance-service
+    consumers: [ledger-service]
+    schema: schemas/compliance.screening-completed.schema.json
+    description: Result of the synchronous screening (pass / flag / block) for reporting and audit.
+
+  - name: compliance.review-decided
+    key: transferId
+    producer: compliance-service
+    consumers: [transfer-service]
+    schema: schemas/compliance.review-decided.schema.json
+    description: A compliance officer approved or rejected a transfer that was ON_HOLD.
+
+  - name: fx.lock-expired
+    key: transferId
+    producer: fx-service
+    consumers: [transfer-service]
+    schema: schemas/fx.lock-expired.schema.json
+    description: A rate lock reached its 30-minute expiry without being consumed.
+
+  - name: payment.authorized
+    key: transferId
+    producer: payment-service
+    consumers: [transfer-service]
+    schema: schemas/payment.authorized.schema.json
+    description: Sender's card/bank authorised; funds are held, not yet charged.
+
+  - name: payment.captured
+    key: transferId
+    producer: payment-service
+    consumers: [ledger-service]
+    schema: schemas/payment.captured.schema.json
+    description: Held funds captured (money collected).
+
+  - name: payment.failed
+    key: transferId
+    producer: payment-service
+    consumers: [transfer-service]
+    schema: schemas/payment.failed.schema.json
+    description: Authorisation declined or capture failed.
+
+  - name: payment.refunded
+    key: transferId
+    producer: payment-service
+    consumers: [transfer-service, ledger-service]
+    schema: schemas/payment.refunded.schema.json
+    description: Captured money returned to the sender's original payment method.
+
+  - name: payout.dispatched
+    key: transferId
+    producer: payment-service
+    consumers: [transfer-service, ledger-service]
+    schema: schemas/payout.dispatched.schema.json
+    description: Payout partner accepted the disbursement instruction.
+
+  - name: payout.completed
+    key: transferId
+    producer: payment-service
+    consumers: [transfer-service]
+    schema: schemas/payout.completed.schema.json
+    description: Payout partner confirmed the recipient received the funds.
+
+  - name: payout.failed
+    key: transferId
+    producer: payment-service
+    consumers: [transfer-service]
+    schema: schemas/payout.failed.schema.json
+    description: Payout failed. final=false means it moved to the manual queue; final=true means give up and refund.
+
+  - name: ledger.reconciliation-completed
+    key: runId
+    producer: ledger-service
+    consumers: [notification-service]
+    schema: schemas/ledger.reconciliation-completed.schema.json
+    description: Nightly reconciliation finished; discrepancies alert the operations team.
+
+deadLetters:
+  # One topic per consuming service. Value = original message + failure details.
+  schema: schemas/dlq.schema.json
+  topics:
+    - dlq.transfer-service
+    - dlq.compliance-service
+    - dlq.ledger-service
+    - dlq.notification-service

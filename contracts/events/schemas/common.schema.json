@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/common.schema.json",
+  "title": "AnchorPay shared event definitions",
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "description": "Every Kafka message value is an envelope. eventType equals the topic name.",
+      "required": [
+        "eventId",
+        "eventType",
+        "eventVersion",
+        "occurredAt",
+        "producer",
+        "correlationId",
+        "data"
+      ],
+      "properties": {
+        "eventId": {
+          "$ref": "#/$defs/uuid",
+          "description": "Unique per event; consumers de-duplicate on it (inbox table)."
+        },
+        "eventType": {
+          "type": "string",
+          "pattern": "^[a-z]+(\\.[a-z]+(-[a-z]+)*)+$"
+        },
+        "eventVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Bumped only for breaking changes to data."
+        },
+        "occurredAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "producer": {
+          "type": "string",
+          "description": "Service that emitted the event, e.g. transfer-service."
+        },
+        "correlationId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Request id of the user action that started the flow (X-Request-Id)."
+        },
+        "causationId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "eventId of the event that caused this one, if any."
+        },
+        "data": {
+          "type": "object"
+        }
+      }
+    },
+    "uuid": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "country": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "money": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "amountMinor",
+        "currency"
+      ],
+      "properties": {
+        "amountMinor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Integer minor units (cents / paisa)."
+        },
+        "currency": {
+          "$ref": "#/$defs/currency"
+        }
+      }
+    },
+    "rate": {
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]{1,10})?$",
+      "description": "Decimal string, never a float."
+    },
+    "transferStatus": {
+      "enum": [
+        "INITIATED",
+        "FX_LOCKED",
+        "COMPLIANCE_SCREENING",
+        "ON_HOLD",
+        "AWAITING_RECONFIRM",
+        "PAYMENT_COLLECTED",
+        "PAYOUT_DISPATCHED",
+        "COMPLETED",
+        "FAILED",
+        "CANCELLED",
+        "REFUNDED"
+      ]
+    },
+    "transferReference": {
+      "type": "string",
+      "pattern": "^AP-[0-9A-Z]{8}$"
+    },
+    "corridorCode": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}-[A-Z]{2}$"
+    },
+    "fundingMethod": {
+      "enum": [
+        "card",
+        "bank_debit"
+      ]
+    },
+    "payoutMethod": {
+      "enum": [
+        "bank_account",
+        "mobile_wallet"
+      ]
+    },
+    "kycTier": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 3
+    }
+  }
+}

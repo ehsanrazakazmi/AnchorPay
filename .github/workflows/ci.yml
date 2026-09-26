@@ -1,0 +1,74 @@
+# Runs on every PR and on main. Free on GitHub (2,000 min/month for private repos; each run ~3-4 min).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Lint OpenAPI + AnchorPay contract rules + event schemas
+        run: npm run check
+
+  database:
+    name: database
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+      kafka:
+        image: apache/kafka:4.3.1
+        ports: ['9092:9092']
+    env:
+      # Override .env defaults (local uses port 5433 and Garnet); dotenv never overrides real env vars.
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      REDIS_URL: redis://127.0.0.1:6379
+      KAFKA_BROKERS: 127.0.0.1:9092
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Generate throwaway secrets for this run
+        run: npm run setup:env -- --pg-superuser-password=postgres
+      - run: npm run db:bootstrap
+      - run: npm run db:migrate
+      - name: Every down migration works (roll back all, re-apply all)
+        run: npm run db:reset
+      - name: Wait for Kafka and create topics
+        run: |
+          for i in $(seq 1 30); do npm run -s kafka:topics && exit 0; sleep 2; done
+          exit 1
+      - name: Foundation verification (roles, integrity guards, Redis, Kafka, contracts)
+        run: npm run verify

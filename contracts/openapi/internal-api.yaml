@@ -1,0 +1,986 @@
+openapi: 3.1.0
+info:
+  title: AnchorPay Internal API
+  version: 1.0.0
+  summary: Service-to-service calls. Never routed by the gateway; bound to 127.0.0.1 locally / private subnets in production.
+  description: |
+    Every call carries `X-Internal-Token` (shared secret, INTERNAL_SERVICE_TOKEN) and `X-Calling-Service`.
+    A service rejects callers that are not listed in the operation's `x-callers`. Calls carry the originating
+    `X-Request-Id` so one user action can be traced across services.
+
+    Synchronous calls here are the ones the transfer flow must wait for (limits, screening, rate lock,
+    payment authorise/capture). Everything else is asynchronous through Kafka (contracts/events).
+    Timeouts: 2 s default, 5 s for screening and payments; retried with backoff only when idempotent.
+  license:
+    name: Proprietary — Axelytix
+    identifier: LicenseRef-Proprietary
+servers:
+  - url: http://127.0.0.1:4001
+    description: identity-service
+  - url: http://127.0.0.1:4002
+    description: transfer-service
+  - url: http://127.0.0.1:4003
+    description: payment-service
+  - url: http://127.0.0.1:5001
+    description: compliance-service
+  - url: http://127.0.0.1:5002
+    description: fx-service
+security:
+  - internalToken: []
+tags:
+  - name: identity-service
+  - name: transfer-service
+  - name: compliance-service
+  - name: fx-service
+  - name: payment-service
+
+paths:
+  # ---------------------------------------------------------------- identity-service
+  /internal/identity/users/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/UserId'
+    get:
+      tags: [identity-service]
+      operationId: internalGetUser
+      summary: User with decrypted personal details
+      description: Returns PII — only for sanctions screening, report drafting and sending notifications. Never log the body.
+      x-owner-service: identity-service
+      x-callers: [compliance-service, notification-service]
+      responses:
+        '200':
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalUser'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/identity/recipients/{recipientId}:
+    parameters:
+      - name: recipientId
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+    get:
+      tags: [identity-service]
+      operationId: internalGetRecipient
+      summary: Recipient with decrypted payout details
+      description: Account/wallet numbers are only returned to payment-service (for the payout instruction).
+      x-owner-service: identity-service
+      x-callers: [compliance-service, payment-service, transfer-service]
+      responses:
+        '200':
+          description: Recipient
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalRecipient'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- transfer-service
+  /internal/transfers/{transferId}:
+    parameters:
+      - $ref: '#/components/parameters/TransferId'
+    get:
+      tags: [transfer-service]
+      operationId: internalGetTransfer
+      summary: Transfer record for other services (admin screens, reports, reconciliation)
+      x-owner-service: transfer-service
+      x-callers: [compliance-service, payment-service, ledger-service, notification-service]
+      responses:
+        '200':
+          description: Transfer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalTransfer'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/transfers/stats:
+    get:
+      tags: [transfer-service]
+      operationId: internalTransferStats
+      summary: A sender's recent activity, used by AML velocity rules
+      x-owner-service: transfer-service
+      x-callers: [compliance-service]
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            $ref: 'common.yaml#/components/schemas/Uuid'
+        - name: recipientId
+          in: query
+          required: false
+          schema:
+            $ref: 'common.yaml#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Counts and totals (transfers that were not cancelled)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferStats'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- compliance-service
+  /internal/compliance/limit-checks:
+    post:
+      tags: [compliance-service]
+      operationId: internalCheckLimits
+      summary: Can this user send this amount right now? (KYC status + tier limits)
+      description: Called before a transfer is created so the user is never asked to authorise an impossible payment.
+      x-owner-service: compliance-service
+      x-callers: [transfer-service]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, sendAmount]
+              properties:
+                userId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                sendAmount:
+                  $ref: 'common.yaml#/components/schemas/Money'
+      responses:
+        '200':
+          description: Decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LimitCheckResult'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/compliance/screenings:
+    post:
+      tags: [compliance-service]
+      operationId: internalScreenTransfer
+      summary: Screen a transfer (sanctions, AML rules, fraud score) — must answer within 500 ms (p95)
+      description: >-
+        Idempotent per transferId: repeating the call returns the existing screening. A `flag` decision also creates
+        a review case; `block` never moves money. Emits compliance.screening-completed.
+      x-owner-service: compliance-service
+      x-callers: [transfer-service]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScreeningRequest'
+      responses:
+        '200':
+          description: Screening result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScreeningResult'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- fx-service
+  /internal/fx/rates/{base}/{quote}:
+    parameters:
+      - name: base
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Currency'
+      - name: quote
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Currency'
+    get:
+      tags: [fx-service]
+      operationId: internalGetMidRate
+      summary: Latest cached mid-market rate
+      x-owner-service: fx-service
+      x-callers: [transfer-service, ledger-service]
+      responses:
+        '200':
+          description: Rate
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [base, quote, midRate, source, fetchedAt]
+                properties:
+                  base:
+                    $ref: 'common.yaml#/components/schemas/Currency'
+                  quote:
+                    $ref: 'common.yaml#/components/schemas/Currency'
+                  midRate:
+                    $ref: 'common.yaml#/components/schemas/Rate'
+                  source:
+                    type: string
+                  fetchedAt:
+                    $ref: 'common.yaml#/components/schemas/Timestamp'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/fx/quotes:
+    post:
+      tags: [fx-service]
+      operationId: internalCreateQuote
+      summary: Price a transfer (same as the public /v1/quotes, used for re-quotes)
+      x-owner-service: fx-service
+      x-callers: [transfer-service]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [corridorCode, sendAmount, fundingMethod]
+              properties:
+                corridorCode:
+                  $ref: 'common.yaml#/components/schemas/CorridorCode'
+                sendAmount:
+                  $ref: 'common.yaml#/components/schemas/Money'
+                fundingMethod:
+                  $ref: 'common.yaml#/components/schemas/FundingMethod'
+      responses:
+        '200':
+          description: Quote
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Quote'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/fx/locks:
+    post:
+      tags: [fx-service]
+      operationId: internalLockRate
+      summary: Lock a quote's rate for a transfer (30 minutes)
+      description: 409 QUOTE_EXPIRED if the 60-second quote is gone — the client must re-quote. Idempotent per transferId + quoteId.
+      x-owner-service: fx-service
+      x-callers: [transfer-service]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transferId, userId, quoteId]
+              properties:
+                transferId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                userId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                quoteId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+      responses:
+        '201':
+          description: Locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxLock'
+        '200':
+          description: Already locked for this transfer and quote
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxLock'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/fx/locks/{lockId}:
+    parameters:
+      - $ref: '#/components/parameters/LockId'
+    get:
+      tags: [fx-service]
+      operationId: internalGetLock
+      summary: Lock status (active / consumed / expired / released)
+      x-owner-service: fx-service
+      x-callers: [transfer-service]
+      responses:
+        '200':
+          description: Lock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxLock'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/fx/locks/{lockId}/consume:
+    parameters:
+      - $ref: '#/components/parameters/LockId'
+    post:
+      tags: [fx-service]
+      operationId: internalConsumeLock
+      summary: Use the lock (right before capturing payment). 409 RATE_LOCK_EXPIRED if too late.
+      x-owner-service: fx-service
+      x-callers: [transfer-service]
+      responses:
+        '200':
+          description: Consumed (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxLock'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/fx/locks/{lockId}/release:
+    parameters:
+      - $ref: '#/components/parameters/LockId'
+    post:
+      tags: [fx-service]
+      operationId: internalReleaseLock
+      summary: Release an unused lock (transfer cancelled or failed)
+      x-owner-service: fx-service
+      x-callers: [transfer-service]
+      responses:
+        '200':
+          description: Released (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FxLock'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  # ---------------------------------------------------------------- payment-service
+  /internal/payments/authorizations:
+    post:
+      tags: [payment-service]
+      operationId: internalAuthorizePayment
+      summary: Hold the sender's funds (authorise, don't charge)
+      description: >-
+        Card: manual-capture PaymentIntent (Stripe test mode) or the mock card form. Bank debit: mock pre-authorised
+        debit. Emits payment.authorized / payment.failed when the outcome is known. Idempotent per transferId.
+      x-owner-service: payment-service
+      x-callers: [transfer-service]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transferId, userId, method, amount]
+              properties:
+                transferId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                userId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                method:
+                  $ref: 'common.yaml#/components/schemas/FundingMethod'
+                amount:
+                  description: Total charge (send amount + fee + surcharge).
+                  $ref: 'common.yaml#/components/schemas/Money'
+                returnUrl:
+                  type: string
+                  format: uri
+      responses:
+        '201':
+          description: Authorisation started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [payment, paymentAction]
+                properties:
+                  payment:
+                    $ref: '#/components/schemas/Payment'
+                  paymentAction:
+                    $ref: 'common.yaml#/components/schemas/PaymentAction'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/payments/{paymentId}/capture:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      tags: [payment-service]
+      operationId: internalCapturePayment
+      summary: Charge the held funds (after compliance passed and the lock was consumed)
+      x-owner-service: payment-service
+      x-callers: [transfer-service]
+      responses:
+        '200':
+          description: Captured (idempotent). Emits payment.captured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/payments/{paymentId}/void:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      tags: [payment-service]
+      operationId: internalVoidPayment
+      summary: Release the hold without charging (cancelled / blocked before capture)
+      x-owner-service: payment-service
+      x-callers: [transfer-service]
+      responses:
+        '200':
+          description: Voided (idempotent)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/payments/{paymentId}/refunds:
+    parameters:
+      - $ref: '#/components/parameters/PaymentId'
+    post:
+      tags: [payment-service]
+      operationId: internalRefundPayment
+      summary: Return captured money to the original payment method (transfer FAILED after capture)
+      x-owner-service: payment-service
+      x-callers: [transfer-service]
+      parameters:
+        - $ref: 'common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount, reason]
+              properties:
+                amount:
+                  $ref: 'common.yaml#/components/schemas/Money'
+                reason:
+                  type: string
+      responses:
+        '202':
+          description: Refund started. Emits payment.refunded when it succeeds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/payouts:
+    post:
+      tags: [payment-service]
+      operationId: internalCreatePayout
+      summary: Send the money to the recipient through the payout partner
+      description: >-
+        Returns immediately; dispatch happens in the background with up to 3 attempts (exponential backoff), then the
+        manual queue. Emits payout.dispatched / payout.completed / payout.failed. Idempotent per transferId.
+      x-owner-service: payment-service
+      x-callers: [transfer-service]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transferId, transferReference, recipientId, amount, sendAmount]
+              properties:
+                transferId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                transferReference:
+                  $ref: 'common.yaml#/components/schemas/TransferReference'
+                recipientId:
+                  $ref: 'common.yaml#/components/schemas/Uuid'
+                amount:
+                  description: Amount the recipient receives (destination currency).
+                  $ref: 'common.yaml#/components/schemas/Money'
+                sendAmount:
+                  description: CAD amount converted (for the ledger FX journal).
+                  $ref: 'common.yaml#/components/schemas/Money'
+      responses:
+        '202':
+          description: Payout accepted for dispatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalPayout'
+        '400':
+          $ref: 'common.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '409':
+          $ref: 'common.yaml#/components/responses/Conflict'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/payouts/{payoutId}:
+    parameters:
+      - name: payoutId
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+    get:
+      tags: [payment-service]
+      operationId: internalGetPayout
+      summary: Payout status
+      x-owner-service: payment-service
+      x-callers: [transfer-service, ledger-service]
+      responses:
+        '200':
+          description: Payout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InternalPayout'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+components:
+  securitySchemes:
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+      description: Shared service secret (INTERNAL_SERVICE_TOKEN). Production would use mTLS between services instead.
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    TransferId:
+      name: transferId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    LockId:
+      name: lockId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      schema:
+        $ref: 'common.yaml#/components/schemas/Uuid'
+
+  schemas:
+    InternalUser:
+      type: object
+      required: [id, email, phone, fullName, country, role, status, createdAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        fullName:
+          type: string
+        dateOfBirth:
+          type: string
+          format: date
+        address:
+          type: object
+          additionalProperties: true
+        country:
+          $ref: 'common.yaml#/components/schemas/Country'
+        role:
+          $ref: 'common.yaml#/components/schemas/Role'
+        status:
+          type: string
+          enum: [active, locked, suspended, closed]
+        emailVerified:
+          type: boolean
+        phoneVerified:
+          type: boolean
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    InternalRecipient:
+      type: object
+      required: [id, userId, fullName, country, currency, payoutMethod]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        userId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        fullName:
+          type: string
+        phone:
+          type: string
+        country:
+          $ref: 'common.yaml#/components/schemas/Country'
+        currency:
+          $ref: 'common.yaml#/components/schemas/Currency'
+        payoutMethod:
+          $ref: 'common.yaml#/components/schemas/PayoutMethod'
+        bankAccount:
+          type: object
+          description: accountNumber present only for payment-service.
+          properties:
+            bankName:
+              type: string
+            bankCode:
+              type: string
+            accountNumber:
+              type: string
+            accountNumberMasked:
+              type: string
+        mobileWallet:
+          type: object
+          description: walletNumber present only for payment-service.
+          properties:
+            provider:
+              type: string
+              enum: [jazzcash, easypaisa]
+            walletNumber:
+              type: string
+            walletNumberMasked:
+              type: string
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    InternalTransfer:
+      type: object
+      required: [id, reference, userId, recipientId, status, corridorCode, fundingMethod, purpose, sendAmount, fee,
+                 cardSurcharge, totalCharge, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        reference:
+          $ref: 'common.yaml#/components/schemas/TransferReference'
+        userId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        recipientId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        status:
+          $ref: 'common.yaml#/components/schemas/TransferStatus'
+        corridorCode:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+        fundingMethod:
+          $ref: 'common.yaml#/components/schemas/FundingMethod'
+        purpose:
+          $ref: 'common.yaml#/components/schemas/TransferPurpose'
+        sendAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        fee:
+          $ref: 'common.yaml#/components/schemas/Money'
+        cardSurcharge:
+          $ref: 'common.yaml#/components/schemas/Money'
+        totalCharge:
+          $ref: 'common.yaml#/components/schemas/Money'
+        receiveAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        midRate:
+          $ref: 'common.yaml#/components/schemas/Rate'
+        offerRate:
+          $ref: 'common.yaml#/components/schemas/Rate'
+        fxLockId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        paymentId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        payoutId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        createdAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        updatedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    TransferStats:
+      type: object
+      required: [countLast1h, countLast24h, amountLast24h, amountLast30d, recentRoundAmountRepeats]
+      properties:
+        countLast1h:
+          type: integer
+        countLast24h:
+          type: integer
+        amountLast24h:
+          $ref: 'common.yaml#/components/schemas/Money'
+        amountLast30d:
+          $ref: 'common.yaml#/components/schemas/Money'
+        recentRoundAmountRepeats:
+          type: integer
+          description: How many transfers in the last 7 days had exactly the same round amount as the latest one.
+        recipientSeenBefore:
+          type: boolean
+          description: Present when recipientId was given.
+
+    LimitCheckResult:
+      type: object
+      required: [allowed, kycTier, kycStatus]
+      properties:
+        allowed:
+          type: boolean
+        reasonCode:
+          type: string
+          enum: [KYC_REQUIRED, LIMIT_EXCEEDED]
+        kycTier:
+          $ref: 'common.yaml#/components/schemas/KycTier'
+        kycStatus:
+          $ref: 'common.yaml#/components/schemas/KycStatus'
+        remainingPerTransfer:
+          $ref: 'common.yaml#/components/schemas/Money'
+        remainingLast24h:
+          $ref: 'common.yaml#/components/schemas/Money'
+        remainingLast30d:
+          $ref: 'common.yaml#/components/schemas/Money'
+
+    ScreeningRequest:
+      type: object
+      required: [transferId, transferReference, userId, recipientId, corridorCode, sendAmount, receiveAmount, fundingMethod, purpose]
+      properties:
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferReference:
+          $ref: 'common.yaml#/components/schemas/TransferReference'
+        userId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        recipientId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        corridorCode:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+        sendAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        receiveAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        fundingMethod:
+          $ref: 'common.yaml#/components/schemas/FundingMethod'
+        purpose:
+          $ref: 'common.yaml#/components/schemas/TransferPurpose'
+
+    ScreeningResult:
+      type: object
+      required: [screeningId, decision, fraudScore, rulesTriggered, sanctionsHit]
+      properties:
+        screeningId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        decision:
+          type: string
+          enum: [pass, flag, block]
+        fraudScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        rulesTriggered:
+          type: array
+          items:
+            type: string
+        sanctionsHit:
+          type: boolean
+        reviewCaseId:
+          description: Present when decision is flag.
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        reasonCode:
+          type: string
+          description: Customer-safe reason when blocked (never reveals sanctions details).
+
+    FxLock:
+      type: object
+      required: [lockId, transferId, quoteId, status, corridorCode, sendAmount, fee, cardSurcharge, totalCharge,
+                 receiveAmount, midRate, offerRate, lockedAt, expiresAt]
+      properties:
+        lockId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        quoteId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        status:
+          type: string
+          enum: [active, consumed, expired, released]
+        corridorCode:
+          $ref: 'common.yaml#/components/schemas/CorridorCode'
+        sendAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        fee:
+          $ref: 'common.yaml#/components/schemas/Money'
+        cardSurcharge:
+          $ref: 'common.yaml#/components/schemas/Money'
+        totalCharge:
+          $ref: 'common.yaml#/components/schemas/Money'
+        receiveAmount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        midRate:
+          $ref: 'common.yaml#/components/schemas/Rate'
+        offerRate:
+          $ref: 'common.yaml#/components/schemas/Rate'
+        lockedAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+        expiresAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    Payment:
+      type: object
+      required: [paymentId, transferId, method, provider, amount, status]
+      properties:
+        paymentId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        method:
+          $ref: 'common.yaml#/components/schemas/FundingMethod'
+        provider:
+          type: string
+          enum: [mock, stripe]
+        amount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        status:
+          type: string
+          enum: [requires_action, authorized, captured, voided, failed, refunded, partially_refunded]
+        cardBrand:
+          type: string
+        cardLast4:
+          type: string
+        failureCode:
+          type: string
+        authorizationExpiresAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    Refund:
+      type: object
+      required: [refundId, paymentId, transferId, amount, status]
+      properties:
+        refundId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        paymentId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        amount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        status:
+          type: string
+          enum: [pending, succeeded, failed]
+
+    InternalPayout:
+      type: object
+      required: [payoutId, transferId, partner, method, amount, status, attempts]
+      properties:
+        payoutId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        transferId:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+        partner:
+          type: string
+        partnerPayoutId:
+          type: string
+        method:
+          $ref: 'common.yaml#/components/schemas/PayoutMethod'
+        amount:
+          $ref: 'common.yaml#/components/schemas/Money'
+        status:
+          type: string
+          enum: [pending, dispatched, completed, failed, manual_review]
+        attempts:
+          type: integer
+        lastError:
+          type: string

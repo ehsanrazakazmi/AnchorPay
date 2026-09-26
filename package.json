@@ -1,0 +1,47 @@
+{
+  "name": "anchorpay",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AnchorPay — cross-border money transfer platform (Canada → Pakistan / India)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "services/*",
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "setup:env": "node scripts/setup-env.mjs",
+    "infra:start": "node scripts/infra.mjs start",
+    "infra:stop": "node scripts/infra.mjs stop",
+    "infra:status": "node scripts/infra.mjs status",
+    "db:bootstrap": "node scripts/db/bootstrap.mjs",
+    "db:migrate": "node scripts/db/migrate.mjs up",
+    "db:rollback": "node scripts/db/migrate.mjs down",
+    "db:reset": "node scripts/db/migrate.mjs reset",
+    "db:erd": "node scripts/db/erd.mjs",
+    "kafka:topics": "node scripts/kafka/create-topics.mjs",
+    "contracts:lint": "redocly lint --config contracts/redocly.yaml && node scripts/contracts/check.mjs",
+    "events:validate": "node scripts/events/validate.mjs",
+    "docs:api": "node scripts/api-docs-server.mjs",
+    "verify": "node scripts/verify-foundation.mjs",
+    "check": "npm run contracts:lint && npm run events:validate"
+  },
+  "devDependencies": {
+    "@confluentinc/kafka-javascript": "^1.10.1",
+    "@redocly/cli": "^2.54.3",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "dotenv": "^17.4.2",
+    "ioredis": "^5.11.1",
+    "node-pg-migrate": "^9.0.0",
+    "pg": "^8.23.0",
+    "swagger-ui-dist": "^5.33.0",
+    "yaml": "^2.9.1"
+  },
+  "allowScripts": {
+    "@confluentinc/kafka-javascript@1.10.1": true
+  }
+}

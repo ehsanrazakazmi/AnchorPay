@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/payout.dispatched.schema.json",
+  "title": "payout.dispatched (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "payout.dispatched"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "payoutId",
+        "transferId",
+        "partner",
+        "method",
+        "amount",
+        "sendAmount",
+        "dispatchedAt"
+      ],
+      "properties": {
+        "payoutId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "partner": {
+          "type": "string"
+        },
+        "method": {
+          "$ref": "common.schema.json#/$defs/payoutMethod"
+        },
+        "amount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "sendAmount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "dispatchedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/payment.authorized.schema.json",
+  "title": "payment.authorized (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "payment.authorized"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paymentId",
+        "transferId",
+        "method",
+        "amount",
+        "authorizedAt",
+        "authorizationExpiresAt"
+      ],
+      "properties": {
+        "paymentId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "method": {
+          "$ref": "common.schema.json#/$defs/fundingMethod"
+        },
+        "amount": {
+          "$ref": "common.schema.json#/$defs/money"
+        },
+        "authorizedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "authorizationExpiresAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

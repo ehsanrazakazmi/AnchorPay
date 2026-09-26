@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/ledger.reconciliation-completed.schema.json",
+  "title": "ledger.reconciliation-completed (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "ledger.reconciliation-completed"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runId",
+        "runDate",
+        "partner",
+        "status",
+        "totalItems",
+        "discrepancyCount",
+        "finishedAt"
+      ],
+      "properties": {
+        "runId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "runDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "partner": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "discrepancies",
+            "failed"
+          ]
+        },
+        "totalItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "discrepancyCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finishedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

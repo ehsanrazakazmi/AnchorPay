@@ -1,0 +1,17 @@
+{
+  "eventId": "0199a1d0-0000-7000-8000-000000000001",
+  "eventType": "payout.failed",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-26T10:12:03Z",
+  "producer": "payment-service",
+  "correlationId": "req_01J8Z6Q4N5",
+  "causationId": null,
+  "data": {
+    "payoutId": "0199a1c6-9999-7abc-8def-000000000009",
+    "transferId": "0199a1c0-0000-7000-8000-00000000abcd",
+    "attempts": 3,
+    "reasonCode": "partner_unavailable",
+    "final": false,
+    "failedAt": "2026-09-26T11:00:00Z"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "originalTopic": "payout.completed",
+  "originalPartition": 1,
+  "originalOffset": "1042",
+  "originalKey": "0199a1c0-0000-7000-8000-00000000abcd",
+  "consumer": "transfer-service",
+  "attempts": 4,
+  "error": {
+    "message": "Invalid transfer transition FAILED -> COMPLETED",
+    "code": "23514",
+    "stack": null
+  },
+  "failedAt": "2026-09-26T10:21:00Z",
+  "originalValue": {
+    "eventType": "payout.completed"
+  }
+}

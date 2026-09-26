@@ -1,0 +1,14 @@
+{
+  "eventId": "0199a1d0-0000-7000-8000-000000000001",
+  "eventType": "fx.lock-expired",
+  "eventVersion": 1,
+  "occurredAt": "2026-09-26T10:12:03Z",
+  "producer": "fx-service",
+  "correlationId": "req_01J8Z6Q4N5",
+  "causationId": null,
+  "data": {
+    "lockId": "0199a1c3-6666-7abc-8def-000000000006",
+    "transferId": "0199a1c0-0000-7000-8000-00000000abcd",
+    "expiredAt": "2026-09-26T10:40:00Z"
+  }
+}

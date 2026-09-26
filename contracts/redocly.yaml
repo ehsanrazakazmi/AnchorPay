@@ -1,0 +1,29 @@
+# OpenAPI lint rules (npm run contracts:lint). "recommended" + stricter checks for a financial API.
+extends:
+  - recommended
+
+apis:
+  public:
+    root: ./openapi/public-api.yaml
+  internal:
+    root: ./openapi/internal-api.yaml
+
+rules:
+  operation-operationId: error
+  operation-operationId-unique: error
+  operation-summary: error
+  operation-4xx-response: error
+  operation-2xx-response: error
+  security-defined: error
+  no-unresolved-refs: error
+  no-unused-components: warn
+  tag-description: off
+  info-license-strict: off
+  rule/every-operation-has-owner:
+    subject:
+      type: Operation
+      property: x-owner-service
+    assertions:
+      defined: true
+    message: Every operation must say which service owns it (x-owner-service).
+# x-roles / x-callers / service names are checked by scripts/contracts/check.mjs.

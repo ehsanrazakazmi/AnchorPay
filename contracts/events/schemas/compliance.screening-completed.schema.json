@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/compliance.screening-completed.schema.json",
+  "title": "compliance.screening-completed (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "compliance.screening-completed"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "screeningId",
+        "transferId",
+        "userId",
+        "decision",
+        "fraudScore",
+        "rulesTriggered",
+        "sanctionsHit",
+        "completedAt"
+      ],
+      "properties": {
+        "screeningId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "transferId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "userId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "decision": {
+          "enum": [
+            "pass",
+            "flag",
+            "block"
+          ]
+        },
+        "fraudScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "rulesTriggered": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sanctionsHit": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}

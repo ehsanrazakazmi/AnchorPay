@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.anchorpay.local/events/user.closed.schema.json",
+  "title": "user.closed (v1)",
+  "type": "object",
+  "allOf": [
+    {
+      "$ref": "common.schema.json#/$defs/envelope"
+    }
+  ],
+  "properties": {
+    "eventType": {
+      "const": "user.closed"
+    },
+    "eventVersion": {
+      "const": 1
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "userId",
+        "closedAt",
+        "reason"
+      ],
+      "properties": {
+        "userId": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "closedAt": {
+          "$ref": "common.schema.json#/$defs/timestamp"
+        },
+        "reason": {
+          "enum": [
+            "customer_request",
+            "compliance",
+            "inactivity"
+          ]
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false
+}
