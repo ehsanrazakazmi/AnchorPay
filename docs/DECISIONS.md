@@ -53,7 +53,7 @@ The owner cannot spend money on this build. Every paid item in the PDF/Guide has
 | GitHub Actions | Free tier (2,000 min/month private, unlimited public) | — |
 
 ### D-02 Local infrastructure on Windows
-No WSL or Docker on the dev laptop, so everything is a portable install in `C:\Users\ehsan\devtools` (see [local-setup.md](local-setup.md)).
+No WSL or Docker on the dev laptop, so everything is a portable install in `C:\Users\<you>\devtools` (see [local-setup.md](local-setup.md)).
 - **Garnet** (Microsoft, open source) instead of Redis: Redis has no official Windows build; Garnet speaks the Redis protocol, so services use normal Redis clients and can switch to real Redis with no code change.
 - **Kafka**: single node, KRaft mode, bound to 127.0.0.1. Windows workarounds: time-based log deletion and compaction are off (they can crash Kafka on Windows), and topics are never deleted. The stock stop script needs `wmic` (removed from Windows 11), so `stop-infra.ps1` replaces it.
 - **Terraform** skipped: there is no cloud to provision. The PDF's IaC tasks return when a cloud account exists.

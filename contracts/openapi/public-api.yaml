@@ -16,7 +16,7 @@ info:
   contact:
     name: AnchorPay engineering
   license:
-    name: Proprietary — Axelytix
+    name: Proprietary
     identifier: LicenseRef-Proprietary
 servers:
   - url: http://127.0.0.1:8080

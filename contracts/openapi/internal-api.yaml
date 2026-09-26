@@ -12,7 +12,7 @@ info:
     payment authorise/capture). Everything else is asynchronous through Kafka (contracts/events).
     Timeouts: 2 s default, 5 s for screening and payments; retried with backoff only when idempotent.
   license:
-    name: Proprietary — Axelytix
+    name: Proprietary
     identifier: LicenseRef-Proprietary
 servers:
   - url: http://127.0.0.1:4001

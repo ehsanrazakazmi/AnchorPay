@@ -78,7 +78,7 @@ and sign below (or approve the sign-off PR).
 
 | Engineer | Module | `npm run verify` passed | Contracts reviewed | Date |
 |---|---|---|---|---|
-| Rizwanullah Sheikh | 1 — Core Engine (lead) | ⬜ | ⬜ | |
-| Ali Nazir | 2 — Compliance & Fraud | ⬜ | ⬜ | |
-| Uzair Sultan | 3 — FX & Payments | ⬜ | ⬜ | |
-| Farhan Aftab | 4 — Frontend & Notifications | ⬜ | ⬜ | |
+| Module 1 owner (lead) | 1 — Core Engine | ⬜ | ⬜ | |
+| Module 2 owner | 2 — Compliance & Fraud | ⬜ | ⬜ | |
+| Module 3 owner | 3 — FX & Payments | ⬜ | ⬜ | |
+| Module 4 owner | 4 — Frontend & Notifications | ⬜ | ⬜ | |

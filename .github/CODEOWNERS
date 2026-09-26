@@ -1,10 +1,10 @@
 # Code owners are requested automatically for review. Replace the placeholders with GitHub usernames
-# once the repository is on GitHub (e.g. @rizwanullah-sheikh). Later rules win over earlier ones.
+# once the repository is on GitHub (e.g. @your-github-username). Later rules win over earlier ones.
 #
-# Lead (Module 1): Rizwanullah Sheikh   -> @LEAD
-# Module 2 (Compliance): Ali Nazir      -> @M2_OWNER
-# Module 3 (FX & Payments): Uzair Sultan -> @M3_OWNER
-# Module 4 (Frontend): Farhan Aftab     -> @M4_OWNER
+# Module 1 owner (lead)        -> @LEAD
+# Module 2 owner (Compliance)  -> @M2_OWNER
+# Module 3 owner (FX/Payments) -> @M3_OWNER
+# Module 4 owner (Frontend)    -> @M4_OWNER
 #
 # *                                  @LEAD
 # /contracts/                        @LEAD @M2_OWNER @M3_OWNER @M4_OWNER

@@ -37,7 +37,10 @@ const command = process.argv[2];
 const devtools = env('DEVTOOLS_DIR');
 
 if (command === 'start') {
-  spawnSync('cmd.exe', ['/c', join(devtools, 'start-infra.cmd')], { stdio: 'inherit' });
+  // stdio must not be inherited: the long-running Kafka/Garnet windows would inherit this process's
+  // stdout and keep a caller's pipe open forever (e.g. `npm run infra:start | tail`).
+  spawnSync('cmd.exe', ['/c', join(devtools, 'start-infra.cmd')], { stdio: 'ignore' });
+  console.log('Starting Garnet and Kafka (up to 60 s)...');
   const [, garnet, kafka] = SERVICES;
   const ok = await waitFor(async () => (await isListening(garnet)) && (await isListening(kafka)), 60_000);
   await status();

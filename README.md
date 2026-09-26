@@ -42,13 +42,3 @@ apps/web/         Next.js customer app + admin portal (Module 4)     — next ph
 | [database.md](docs/database.md) · [database-erd.md](docs/database-erd.md) | schemas, roles, conventions, migrations, ERD |
 | [secrets.md](docs/secrets.md) | where secrets live, rotation |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | branches, commits, PRs, reviews |
-
-## Team
-| Module | Owner |
-|---|---|
-| 1 — Core Engine & Infrastructure (lead) | Rizwanullah Sheikh |
-| 2 — Compliance & Fraud | Ali Nazir |
-| 3 — FX Pricing & Payments | Uzair Sultan |
-| 4 — Frontend & Notifications | Farhan Aftab |
-
-Confidential. Axelytix, for internal development use only.

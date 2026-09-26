@@ -31,17 +31,17 @@ flowchart LR
 
 ## Services
 
-| Service | Lang | Port | Owns (schema) | Module / owner |
+| Service | Lang | Port | Owns (schema) | Module |
 |---|---|---|---|---|
-| gateway | Node.js | 8080 | – | 1 · Rizwanullah |
-| identity-service | Node.js | 4001 | `core` (users, recipients) | 1 · Rizwanullah |
-| transfer-service | Node.js | 4002 | `core` (transfers, history) | 1 · Rizwanullah |
-| compliance-service | Python (FastAPI) | 5001 | `compliance` | 2 · Ali |
-| fx-service | Python (FastAPI) | 5002 | `fx` | 3 · Uzair |
-| payment-service | Node.js | 4003 | `payments` | 3 · Uzair |
-| ledger-service | Python (FastAPI) | 5003 | `ledger` (+ reads `audit`) | 3 · Uzair (reporting endpoints: Rizwanullah) |
-| notification-service | Node.js | 4004 | `notify` | 4 · Farhan |
-| web | Next.js + TypeScript + Tailwind | 3000 | – | 4 · Farhan |
+| gateway | Node.js | 8080 | – | 1 (lead) |
+| identity-service | Node.js | 4001 | `core` (users, recipients) | 1 |
+| transfer-service | Node.js | 4002 | `core` (transfers, history) | 1 |
+| compliance-service | Python (FastAPI) | 5001 | `compliance` | 2 |
+| fx-service | Python (FastAPI) | 5002 | `fx` | 3 |
+| payment-service | Node.js | 4003 | `payments` | 3 |
+| ledger-service | Python (FastAPI) | 5003 | `ledger` (+ reads `audit`) | 3 (reporting endpoints: 1) |
+| notification-service | Node.js | 4004 | `notify` | 4 |
+| web | Next.js + TypeScript + Tailwind | 3000 | – | 4 |
 | mock-providers | Node.js | 4900 | – (local files) | shared |
 
 Why these services and not the PDF's full list: [DECISIONS.md D-04](DECISIONS.md#d-04-services).
