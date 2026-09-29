@@ -4,8 +4,8 @@ Cross-border money transfer platform: people in **Canada** send money to **Pakis
 sanctions and fraud screening, live exchange rates with a 30-minute rate lock, payment collection, payout and a
 full audit trail, built as microservices on a zero-cost local stack.
 
-**Status:** Phase A (Shared Foundation) complete. Contracts, database, events and tooling are frozen and verified.
-Modules 1–4 are next ([foundation-signoff.md](docs/foundation-signoff.md)).
+**Status:** Foundation complete. Built so far: the shared service toolkit, **identity-service** (sign-up, login,
+tokens, verification, profile, recipients, staff admin) and the **gateway**. Next: fx-service (pricing and rate locks).
 
 ## Quick start (Windows)
 ```powershell
@@ -15,6 +15,8 @@ npm run setup:env -- --pg-superuser-password=<postgres password>            # .e
 npm run infra:start
 npm run db:bootstrap; npm run db:migrate; npm run kafka:topics                # (once)
 npm run verify
+npm run dev        # gateway on http://127.0.0.1:8080
+npm test
 ```
 Details and troubleshooting: [docs/local-setup.md](docs/local-setup.md).
 
@@ -27,7 +29,8 @@ db/migrations/    SQL migrations (up + down)
 infra/local/      installer + start/stop scripts + Kafka config for the local stack
 scripts/          setup, db, kafka, contract checks, verify, API docs server
 docs/             architecture, decisions, state machine, database, kafka, api, secrets, setup, sign-off
-services/         backend services (Modules 1–3, + notifications)   — next phases
+packages/         service-kit: shared runtime for every Node service
+services/         gateway, identity-service (built) · the other services come in the next steps
 apps/web/         Next.js customer app + admin portal (Module 4)     — next phases
 ```
 

@@ -1,0 +1,19 @@
+{
+  "name": "@anchorpay/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API gateway: routes from the OpenAPI contract, JWT + session checks, roles, rate limits, security headers (Module 1).",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anchorpay/service-kit": "*",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/reply-from": "^12.6.5",
+    "jose": "^6.2.12"
+  }
+}

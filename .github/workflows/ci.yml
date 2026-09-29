@@ -25,7 +25,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Lint OpenAPI + AnchorPay contract rules + event schemas
+      - name: Lint OpenAPI + AnchorPay contract rules + event schemas + TypeScript
         run: npm run check
 
   database:
@@ -72,3 +72,5 @@ jobs:
           exit 1
       - name: Foundation verification (roles, integrity guards, Redis, Kafka, contracts)
         run: npm run verify
+      - name: Unit + integration tests with coverage (test database is rebuilt from the migrations)
+        run: npm run test:coverage

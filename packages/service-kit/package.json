@@ -1,0 +1,25 @@
+{
+  "name": "@anchorpay/service-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared runtime for AnchorPay Node services: config, logging, errors, contracts, DB, Redis, Kafka outbox/inbox, PII crypto, internal calls.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
+  },
+  "dependencies": {
+    "@confluentinc/kafka-javascript": "^1.10.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.12.5",
+    "ioredis": "^5.11.1",
+    "pg": "^8.23.0",
+    "pino": "^10.3.1",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0"
+  }
+}

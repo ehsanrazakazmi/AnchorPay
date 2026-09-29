@@ -2187,7 +2187,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: 'RS256 access token from /v1/auth/login. Claims: sub (user id), role, kyc (tier), exp (15 min).'
+      description: 'RS256 access token from /v1/auth/login. Claims: sub (user id), role, sid (session id), iss, aud, exp (15 min). KYC tier is not a claim: it can change at any time, ask compliance-service.'
     stripeSignature:
       type: apiKey
       in: header

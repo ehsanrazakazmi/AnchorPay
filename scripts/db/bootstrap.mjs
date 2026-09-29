@@ -46,28 +46,30 @@ async function main() {
     console.log(`${exists ? 'updated' : 'created'} role ${role.user}`);
   }
 
-  const dbExists = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [database])).rowCount > 0;
+  // The dev database plus an isolated one the test suite rebuilds on every run.
+  const databases = [...new Set([database, env('PG_TEST_DATABASE', 'anchorpay_test')])];
   const migrator = admin.escapeIdentifier(pgConfig('migrator').user);
-  const dbIdent = admin.escapeIdentifier(database);
-  if (!dbExists) {
-    await admin.query(`CREATE DATABASE ${dbIdent} OWNER ${migrator} ENCODING 'UTF8' TEMPLATE template0`);
-    console.log(`created database ${database}`);
-  } else {
-    await admin.query(`ALTER DATABASE ${dbIdent} OWNER TO ${migrator}`);
-    console.log(`database ${database} already exists`);
-  }
-
-  await admin.query(`REVOKE ALL ON DATABASE ${dbIdent} FROM PUBLIC`);
-  for (const role of roles) {
-    await admin.query(`GRANT CONNECT ON DATABASE ${dbIdent} TO ${admin.escapeIdentifier(role.user)}`);
+  for (const name of databases) {
+    const dbIdent = admin.escapeIdentifier(name);
+    const dbExists = (await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [name])).rowCount > 0;
+    if (!dbExists) {
+      await admin.query(`CREATE DATABASE ${dbIdent} OWNER ${migrator} ENCODING 'UTF8' TEMPLATE template0`);
+      console.log(`created database ${name}`);
+    } else {
+      await admin.query(`ALTER DATABASE ${dbIdent} OWNER TO ${migrator}`);
+      console.log(`database ${name} already exists`);
+    }
+    await admin.query(`REVOKE ALL ON DATABASE ${dbIdent} FROM PUBLIC`);
+    for (const role of roles) {
+      await admin.query(`GRANT CONNECT ON DATABASE ${dbIdent} TO ${admin.escapeIdentifier(role.user)}`);
+    }
+    // Inside the database: nobody but the owner may create objects in "public".
+    const db = new pg.Client({ ...superCfg, database: name });
+    await db.connect();
+    await db.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
+    await db.end();
   }
   await admin.end();
-
-  // Inside the database: nobody but the owner may create objects in "public".
-  const db = new pg.Client({ ...superCfg, database });
-  await db.connect();
-  await db.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC');
-  await db.end();
 
   console.log('Bootstrap complete. Next: npm run db:migrate');
 }

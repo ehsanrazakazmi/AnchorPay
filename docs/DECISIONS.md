@@ -32,6 +32,14 @@ To change a decision: open a PR that edits this file and the affected contract/m
 | D-22 | Scope | Web app first. Mobile, agent portal, hedging etc. later. |
 | D-23 | Migrations | node-pg-migrate with plain SQL files instead of Flyway/Liquibase. |
 | D-24 | Timeline | The documents' timelines are ignored (owner's instruction). |
+| D-25 | Node toolchain | TypeScript run directly with tsx (no build step), Fastify, Vitest; shared code in `packages/service-kit`. |
+| D-26 | Contract-driven code | Services register routes by operationId; the gateway builds its routes from the spec. |
+| D-27 | Gateway trust model | Gateway verifies JWTs; services accept only gateway-forwarded requests (X-Internal-Token). |
+| D-28 | Sessions | Rotating refresh tokens with reuse detection; logout/password change/suspension revoke instantly. |
+| D-29 | Passwords & lockout | bcrypt cost 12, common-password check, 5 failures -> 15-minute lock. |
+| D-30 | Verification secrets | Email links, SMS codes and reset links go straight to the messenger, never through Kafka. |
+| D-31 | Recipient destinations | Validated against a built-in list of corridors until fx-service exists. |
+| D-32 | Test isolation | Tests use `anchorpay_test` (rebuilt each run) and a per-run Redis key prefix. |
 
 ---
 
@@ -186,3 +194,59 @@ The PDF suggests Flyway or Liquibase. We use **node-pg-migrate** with plain `.sq
 
 ### D-24 Timeline
 The owner asked to ignore the documents' timelines (26 weeks vs 62 days vs 15/18 days). Work proceeds phase by phase with sign-off between phases.
+
+---
+
+## Step 1-2 decisions (shared toolkit, identity-service, gateway)
+
+### D-25 Node toolchain
+TypeScript everywhere in Node services, **run directly with tsx** (dev and local "production") and type-checked with
+`tsc --noEmit` (`npm run typecheck`). No build step to forget; the code uses only erasable TypeScript syntax, so it also
+runs on Node's built-in type stripping. Fastify 5 (fast, JSON-Schema validation built in) and Vitest (tests against the
+real local PostgreSQL/Garnet/Kafka). Shared runtime code lives in `packages/service-kit` so every service handles config,
+logging, errors, PII encryption, outbox/inbox and internal calls the same way.
+
+### D-26 The contract drives the code
+A service registers a handler with `svc.handle('<operationId>', ...)`: the method, path, request validation schema, roles
+and callers come from `contracts/openapi`. A service **refuses to start** if it owns an operation it doesn't implement,
+and every test checks response bodies against the contract (`assertMatchesContract`). The gateway builds its route table
+from the same file. Contract and code cannot drift apart silently.
+
+### D-27 Gateway trust model
+The gateway verifies the JWT (RS256, issuer, audience, expiry), checks the session isn't revoked, enforces `x-roles`,
+strips any identity headers a client sends, then forwards with `X-Internal-Token`, `X-User-Id`, `X-User-Role`,
+`X-Session-Id`. Services bind to 127.0.0.1 and reject any public-route request without the internal token, so the gateway
+can't be bypassed. Services still enforce ownership (a customer only ever sees their own data, as 404 otherwise).
+Rate limits: 120 requests/min per IP in general and 10/min for sign-up, login, refresh and reset routes (in-memory
+counters; several gateways would share a Redis store). Request bodies are forwarded byte-for-byte (webhook signatures).
+
+### D-28 Sessions and tokens
+Access token: RS256 JWT, 15 minutes, claims `sub`, `role`, `sid` (session id). **No KYC tier claim**: the tier can change
+at any time and belongs to compliance-service (contract description updated). Refresh token: random 256-bit value,
+stored as a SHA-256 hash in Redis for 30 days and **rotated on every use**. Presenting an already-used refresh token is
+treated as theft and ends the whole session. Logout, password change (other sessions), password reset (all sessions),
+suspension and role changes add the session to a revocation list the gateway checks on every request, so tokens die
+immediately rather than after 15 minutes.
+
+### D-29 Passwords and lockout
+bcrypt (cost 12, `bcryptjs`, no native build needed). 12-128 characters, not a common password, not a single repeated
+character, must not contain the email name. Unknown email and wrong password give the same answer and take the same
+time. After 5 failures the account locks for 15 minutes (423 + Retry-After), and every attempt is audited.
+
+### D-30 Verification secrets never touch Kafka
+Email-verification links (24 h), SMS codes (6 digits, 10 min, 5 attempts) and password-reset links (30 min, single use,
+survives a rejected weak password) are stored only as hashes in Redis and delivered straight to the messenger (the log
+mailbox `logs/mailbox.log` locally). Events stay free of personal data and secrets (D-16). Resends: 1 per minute and
+5 per day per channel. Forgot-password always answers 204 so it can't reveal which emails are registered.
+
+### D-31 Recipient destinations
+identity-service can't read fx-service's corridor table (D-03), so recipients are validated against a built-in list
+matching the seeded corridors (Pakistan: PKR, bank or JazzCash/Easypaisa; India: INR, bank). **Step 3 replaces it with a
+lookup of fx-service's corridors.** Pakistani IBANs are checked (24 characters, mod-97); wallet numbers must be Pakistani
+mobile numbers. Payout details are immutable (create a new recipient instead); deleting is a soft delete so past
+transfers keep their recipient. Full account/wallet numbers are only returned to payment-service.
+
+### D-32 Test isolation
+`npm test` rebuilds the `anchorpay_test` database from the migrations (every down, then every up) and uses a random Redis
+key prefix per run, so tests never touch dev data. Kafka tests use `test.*` topics. Coverage target 80 % (enforced in
+CI), currently about 95 % of lines.

@@ -1,0 +1,17 @@
+{
+  "name": "@anchorpay/identity-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Users, authentication (JWT + rotating refresh tokens), verification and recipients (Module 1).",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "create-staff": "tsx src/scripts/create-staff.ts"
+  },
+  "dependencies": {
+    "@anchorpay/service-kit": "*",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.12"
+  }
+}

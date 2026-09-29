@@ -2,7 +2,7 @@
   "name": "anchorpay",
   "version": "0.1.0",
   "private": true,
-  "description": "AnchorPay — cross-border money transfer platform (Canada → Pakistan / India)",
+  "description": "AnchorPay \u2014 cross-border money transfer platform (Canada \u2192 Pakistan / India)",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -17,6 +17,7 @@
     "infra:start": "node scripts/infra.mjs start",
     "infra:stop": "node scripts/infra.mjs stop",
     "infra:status": "node scripts/infra.mjs status",
+    "dev": "node scripts/dev.mjs",
     "db:bootstrap": "node scripts/db/bootstrap.mjs",
     "db:migrate": "node scripts/db/migrate.mjs up",
     "db:rollback": "node scripts/db/migrate.mjs down",
@@ -27,11 +28,17 @@
     "events:validate": "node scripts/events/validate.mjs",
     "docs:api": "node scripts/api-docs-server.mjs",
     "verify": "node scripts/verify-foundation.mjs",
-    "check": "npm run contracts:lint && npm run events:validate"
+    "check": "npm run contracts:lint && npm run events:validate && npm run typecheck",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "staff:create": "npm run create-staff -w @anchorpay/identity-service --"
   },
   "devDependencies": {
     "@confluentinc/kafka-javascript": "^1.10.1",
     "@redocly/cli": "^2.54.3",
+    "@types/node": "^24.19.0",
+    "@vitest/coverage-v8": "^5.0.2",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "dotenv": "^17.4.2",
@@ -39,6 +46,9 @@
     "node-pg-migrate": "^9.0.0",
     "pg": "^8.23.0",
     "swagger-ui-dist": "^5.33.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2",
     "yaml": "^2.9.1"
   },
   "allowScripts": {

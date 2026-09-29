@@ -39,6 +39,11 @@ npm run verify           # must end with "Foundation verified"
 | Command | What it does |
 |---|---|
 | `npm run infra:start` / `infra:stop` / `infra:status` | start / stop / check Garnet + Kafka (they don't auto-start with Windows) |
+| `npm run dev` | start every built service (gateway on http://127.0.0.1:8080), restarting on code changes. `npm run dev -- identity-service` for one |
+| `npm test` / `npm run test:coverage` | all unit + integration tests (uses the separate `anchorpay_test` database) |
+| `npm run typecheck` | TypeScript type check of every service |
+| `npm run staff:create -- --email=... --phone=+1... --name="..." --role=admin` | create a staff account; prints a one-time temporary password |
+| `logs/mailbox.log` | every SMS and email the services "send" (verification codes, reset links), one JSON line each |
 | `npm run verify` | full health + integrity check of your environment |
 | `npm run check` | lint API contracts + validate event schemas (what CI runs first) |
 | `npm run docs:api` | Swagger UI for the contracts on http://127.0.0.1:8090 |
