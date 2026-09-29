@@ -36,7 +36,8 @@
     "test:node": "vitest run",
     "test:py": "node scripts/py.mjs -m pytest",
     "test:coverage": "vitest run --coverage && node scripts/py.mjs -m pytest --cov --cov-report=term",
-    "staff:create": "npm run create-staff -w @anchorpay/identity-service --"
+    "staff:create": "npm run create-staff -w @anchorpay/identity-service --",
+    "ledger:reconcile": "node scripts/py.mjs -m ledger_service.reconcile"
   },
   "devDependencies": {
     "@confluentinc/kafka-javascript": "^1.10.1",

@@ -1,0 +1,14 @@
+{
+  "name": "@anchorpay/payment-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Collecting money (authorise, capture, void, refund), payouts to recipients and provider webhooks (Module 3).",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anchorpay/service-kit": "*"
+  }
+}

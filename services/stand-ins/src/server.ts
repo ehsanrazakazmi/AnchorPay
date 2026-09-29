@@ -1,9 +1,9 @@
-// Starts the TEMPORARY stand-ins (DECISIONS D-39). Each one steps aside as soon as the real service exists
-// (services/<name>/src/server.ts), so nothing needs deleting when Steps 5-6 land.
+// Starts the TEMPORARY compliance stand-in (DECISIONS D-39). It steps aside as soon as the real service exists
+// (services/compliance-service/src/server.ts), so nothing needs deleting when Step 6 lands.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { createKafka, createLogger, envInt, REPO_ROOT, type Service } from '@anchorpay/service-kit';
-import { buildComplianceStandIn, buildPaymentStandIn, httpLookups, type Publish } from './stand-ins.ts';
+import { buildComplianceStandIn, type Publish } from './stand-ins.ts';
 
 const log = createLogger('stand-ins');
 const realServiceExists = (name: string) => existsSync(join(REPO_ROOT, 'services', name, 'src', 'server.ts'));
@@ -27,7 +27,6 @@ async function start(name: string, port: number, build: () => Service) {
 }
 
 await start('compliance-service', envInt('COMPLIANCE_SERVICE_PORT', 5001), () => buildComplianceStandIn({ publish, log }));
-await start('payment-service', envInt('PAYMENT_SERVICE_PORT', 4003), () => buildPaymentStandIn({ publish, log, lookups: httpLookups() }));
 
 let stopping = false;
 async function shutdown(signal: string) {

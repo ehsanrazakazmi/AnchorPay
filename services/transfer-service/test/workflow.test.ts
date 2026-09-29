@@ -41,7 +41,9 @@ describe('creating a transfer', () => {
     expect(x.transfer.reference).toMatch(/^AP-[2-9A-HJ-NP-TV-Z]{8}$/);
     expect(x.paymentAction).toEqual({ type: 'none' });
     expect(x.transfer.timeline.map((s: { status: string }) => s.status)).toEqual(['INITIATED', 'FX_LOCKED']);
-    expect(t.ports.called('authorizePayment')[0]!.arg).toMatchObject({ transferId: x.id, amount: { amountMinor: 51299 } });
+    expect(t.ports.called('authorizePayment')[0]!.arg).toMatchObject({
+      transferId: x.id, amount: { amountMinor: 51299 }, fee: { amountMinor: 299, currency: 'CAD' }, cardSurcharge: { amountMinor: 1000, currency: 'CAD' },
+    });
 
     const r = await row(t, x.id);
     expect(r.payment_id).toBeTruthy();

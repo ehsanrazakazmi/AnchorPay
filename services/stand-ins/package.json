@@ -2,7 +2,7 @@
   "name": "@anchorpay/stand-ins",
   "version": "0.1.0",
   "private": true,
-  "description": "TEMPORARY in-memory compliance-service and payment-service, so transfers run end to end until Steps 5-6 build the real ones.",
+  "description": "TEMPORARY in-memory compliance-service, so transfers run end to end until Step 6 builds the real one.",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",

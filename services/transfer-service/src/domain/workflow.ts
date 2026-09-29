@@ -168,6 +168,7 @@ export class Workflow {
     try {
       authorization = await this.ports.authorizePayment({
         transferId: t.id, userId: auth.userId, method: t.funding_method, amount: totalCharge(t),
+        fee: { amountMinor: t.fee_minor, currency: t.send_currency.trim() }, cardSurcharge: { amountMinor: t.card_surcharge_minor, currency: t.send_currency.trim() },
         ...(body.returnUrl ? { returnUrl: body.returnUrl } : {}),
       }, rid);
     } catch (err) {

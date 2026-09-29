@@ -28,6 +28,8 @@ declare module 'fastify' {
   interface FastifyRequest {
     auth: AuthContext | null;
     caller: string | null;
+    /** The JSON body exactly as received (only with createService({ rawBody: true })): webhook signatures sign it. */
+    rawBody: string | null;
   }
   interface FastifyContextConfig {
     operation?: Operation;
@@ -58,6 +60,8 @@ export interface ServiceOptions {
   logger?: Logger;
   health?: HealthChecks;
   bodyLimit?: number;
+  /** Keep the raw JSON body on request.rawBody (services that verify webhook signatures). */
+  rawBody?: boolean;
 }
 
 export type OperationHandler = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
@@ -120,6 +124,15 @@ export function createService(options: ServiceOptions): Service {
   app.setValidatorCompiler(({ schema }) => ajv.compile(schema as object));
   app.decorateRequest('auth', null);
   app.decorateRequest('caller', null);
+  app.decorateRequest('rawBody', null);
+  if (options.rawBody) {
+    // Fastify's own JSON parser (prototype-poisoning protection included), plus a copy of the exact text.
+    const parseJson = app.getDefaultJsonParser('error', 'error');
+    app.addContentTypeParser('application/json', { parseAs: 'string' }, (request, body, done) => {
+      request.rawBody = body as string;
+      parseJson(request, body as string, done);
+    });
+  }
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
     await authorize(request);

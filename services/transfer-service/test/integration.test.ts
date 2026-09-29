@@ -37,7 +37,7 @@ describe('HttpPorts', () => {
     await ports.releaseLock(id, 'r');
     await ports.checkLimits({ userId: id, sendAmount: money }, 'r');
     await ports.screen({ transferId: id }, 'r');
-    await ports.authorizePayment({ transferId: id, userId: id, method: 'card', amount: money }, 'r');
+    await ports.authorizePayment({ transferId: id, userId: id, method: 'card', amount: money, fee: money, cardSurcharge: money }, 'r');
     await ports.capturePayment(id, 'r');
     await ports.voidPayment(id, 'r');
     await ports.refundPayment(id, { amount: money, reason: 'PAYOUT_FAILED' }, 'transfer-key', 'r');

@@ -133,7 +133,7 @@ export class FakePorts implements Ports {
       ...(this.screening === 'flag' ? { reviewCaseId: uuidv7() } : {}),
     } satisfies Screening;
   }
-  async authorizePayment(body: { transferId: string; userId: string; method: string; amount: Money }) {
+  async authorizePayment(body: { transferId: string; userId: string; method: string; amount: Money; fee: Money; cardSurcharge: Money }) {
     this.record('authorizePayment', body);
     if (this.authorizeError) throw this.authorizeError;
     const paymentId = uuidv7();

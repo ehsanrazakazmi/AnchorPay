@@ -85,7 +85,7 @@ export interface Ports {
   releaseLock(lockId: string, requestId: string): Promise<FxLock>;
   checkLimits(body: { userId: string; sendAmount: Money }, requestId: string): Promise<LimitCheck>;
   screen(body: Record<string, unknown>, requestId: string): Promise<Screening>;
-  authorizePayment(body: { transferId: string; userId: string; method: string; amount: Money; returnUrl?: string }, requestId: string):
+  authorizePayment(body: { transferId: string; userId: string; method: string; amount: Money; fee: Money; cardSurcharge: Money; returnUrl?: string }, requestId: string):
     Promise<{ payment: Payment; paymentAction: PaymentAction }>;
   capturePayment(paymentId: string, requestId: string): Promise<Payment>;
   voidPayment(paymentId: string, requestId: string): Promise<Payment>;
@@ -134,7 +134,7 @@ export class HttpPorts implements Ports {
   screen(body: Record<string, unknown>, rid: string) {
     return this.call<Screening>('compliance-service', 'POST', '/internal/compliance/screenings', rid, { body, timeoutMs: 5000, retries: 2 });
   }
-  authorizePayment(body: { transferId: string; userId: string; method: string; amount: Money; returnUrl?: string }, rid: string) {
+  authorizePayment(body: { transferId: string; userId: string; method: string; amount: Money; fee: Money; cardSurcharge: Money; returnUrl?: string }, rid: string) {
     return this.call<{ payment: Payment; paymentAction: PaymentAction }>('payment-service', 'POST', '/internal/payments/authorizations', rid,
       { body, timeoutMs: 5000, retries: 1 });
   }

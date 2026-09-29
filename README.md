@@ -6,9 +6,11 @@ full audit trail, built as microservices on a zero-cost local stack.
 
 **Status:** Built so far: shared toolkits (Node + Python), **gateway**, **identity-service** (sign-up, login,
 tokens, verification, profile, recipients, staff admin), **fx-service** (corridors, live rates, quotes, 30-minute rate
-locks) and **transfer-service** (the transfer state machine: create, screen, capture, pay out, cancel, re-quote,
-refund, crash recovery). Compliance and payments are temporary stand-ins for now. Next: payment-service, the mock
-payout partner and ledger-service.
+locks), **transfer-service** (the transfer state machine: create, screen, capture, pay out, cancel, re-quote,
+refund, crash recovery), **payment-service** (card and bank-debit collection, payouts with retries and a manual queue,
+signed webhooks), **mock-providers** (free card processor, bank debit and payout partner) and **ledger-service**
+(double-entry ledger, nightly reconciliation, balances, audit search, daily regulatory summary). Compliance is a
+temporary stand-in for now. Next: compliance-service.
 
 ## Quick start (Windows)
 ```powershell
@@ -34,7 +36,7 @@ infra/local/      installer + start/stop scripts + Kafka config for the local st
 scripts/          setup, db, kafka, contract checks, verify, API docs server
 docs/             architecture, decisions, state machine, database, kafka, api, secrets, setup, sign-off
 packages/         service-kit (Node) and py-service-kit (Python): shared runtime for every service
-services/         gateway, identity-service, fx-service, transfer-service (built) · stand-ins (temporary) · the others come next
+services/         gateway, identity, fx, transfer, payment, ledger, mock-providers (built) · stand-ins (temporary compliance) · the others come next
 apps/web/         Next.js customer app + admin portal (Module 4)     — next phases
 ```
 

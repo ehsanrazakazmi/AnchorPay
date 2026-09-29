@@ -51,6 +51,15 @@ To change a decision: open a PR that edits this file and the affected contract/m
 | D-41 | Rate lock expiry | Cancel / fail / ask to reconfirm depending on the step; re-quotes never change the CAD total. |
 | D-42 | Cancel + idempotency | Cancel only before the transfer is cleared to charge; 24 h Idempotency-Key replay. |
 | D-43 | Toolkit fixes | No JSON content-type on bodiless calls; optional request bodies; realistic shared fixtures. |
+| D-44 | Card payments | Mock card processor with a hosted form and test cards by default; Stripe test mode behind the same adapter. |
+| D-45 | Bank debit | Mock pre-authorised debit, authorised at once; a total ending in .13 bounces. |
+| D-46 | Fee split | transfer-service sends fee + surcharge with the authorisation, so payment.captured can carry them. |
+| D-47 | Payouts | Background dispatch, 3 tries with backoff, permanent vs temporary failures, manual queue for admins. |
+| D-48 | Payment safety | One refund per payment, lapsed holds fail, late holds released, signatures over raw bytes. |
+| D-49 | Ledger postings | Journals derived from facts, one per deterministic ref: the same books in any event order. |
+| D-50 | Reports | Daily summary through the read-only reporting role; audit-log searches are themselves audited. |
+| D-51 | Reconciliation | Nightly per partner and day, matched by payout id; discrepancies stay open until resolved. |
+| D-52 | Step 5 plumbing | Payment stand-in removed; mock provider state in var/; Python kit gains a consumer and an HTTP client. |
 
 ---
 
@@ -352,3 +361,91 @@ recipient. The contract descriptions were updated to say this.
 - An optional `requestBody` (cancel) now accepts no body in both toolkits; a body that is sent is still validated.
 - Test fixtures that share the `core` schema write real ciphertext, because other services' admin screens read every
   row of the shared test database.
+
+---
+
+## Step 5 decisions (payment-service, mock providers, ledger-service)
+
+### D-44 Card payments: mock processor by default, Stripe test mode optional
+`CARD_PAYMENT_PROVIDER=mock` (default) uses the card processor in `services/mock-providers`: the authorisation returns
+`paymentAction: { type: "mock_card", authorizeUrl }`, the customer fills in a hosted card form (plain HTML, test mode
+banner), and the processor reports the result with a signed webhook to the new public operation
+`POST /webhooks/mock-card` (same `X-Signature` scheme as the payout partner). Test cards, as in every card sandbox:
+`4242 4242 4242 4242` approved, `4000 0000 0000 0002` declined, `4000 0000 0000 9995` insufficient funds.
+`CARD_PAYMENT_PROVIDER=stripe` uses manual-capture PaymentIntents (`stripe_card` action with the client secret) and
+`/webhooks/stripe`. The adapter refuses anything but `sk_test_` keys. **It has only been tested against a local fake of
+the Stripe API**, since no Stripe account is used in this build; try it with free test keys before relying on it.
+
+### D-45 Bank debit
+Canadian pre-authorised debit needs a business agreement with a bank, so the mock authorises a debit at once (no
+customer step, `paymentAction: none`). To try the unhappy path, any total ending in **.13** bounces
+(`bank_debit_returned`), for example CAD 50.14 + 2.99 fee = 53.13.
+
+### D-46 The fee split travels with the payment
+`payment.captured` must tell the ledger how much of the charge is fee revenue, but the authorisation request only had the
+total. `internalAuthorizePayment` now also requires `fee` and `cardSurcharge` (contract change; transfer-service is the
+only caller), stored on `payments.payments` (migration `20260930000100_payments_ledger_workflow`).
+
+### D-47 Payouts
+- Created `pending` and sent in the background (first attempt immediately, then a dispatcher every second). The partner
+  de-duplicates on our payout id, so a repeated send after a crash is safe; an attempt holds a 2-minute lease.
+- **Permanent** reasons (`invalid_account`, `recipient_bank_rejected`, `limit_exceeded`) fail the payout at once
+  (`payout.failed`, `final: true`, so transfer-service refunds the sender). **Temporary** reasons (`partner_unavailable`,
+  anything unexpected) retry after `PAYOUT_RETRY_BACKOFF_SECONDS` (10 s, 60 s); after `PAYOUT_MAX_ATTEMPTS` (3) the
+  payout goes to the **manual queue** (`manual_review`, `payout.failed` with `final: false`).
+- From the manual queue an agent or admin can **retry** (one more attempt) and an admin can **fail** it with a note
+  (`final: true`, so the sender is refunded). Both are audited. Payouts in other states can't be changed by hand: a
+  dispatched payout is in the partner's hands.
+- Account and wallet numbers are fetched from identity-service for each attempt and never stored; `payout_attempts`
+  keeps a redacted copy of each request (last 4 characters only).
+- Mock partner sandbox (by the last 4 digits of the account or wallet number): `0000` invalid account, `1111` partner
+  unavailable, `2222` accepted then rejected by the bank, anything else completed after `MOCK_PAYOUT_DELAY_MS` (3 s).
+
+### D-48 Payment safety rules
+- Full refunds only, at most one per payment (database unique index): a repeated refund request gets the same refund.
+  A refund the processor couldn't be reached for stays `pending` and is retried by the maintenance job (every 30 s).
+- A hold that lapses before capture (card holds last about 7 days) fails with `authorization_expired`
+  (`payment.failed`, stage `capture`), so the transfer fails instead of trying to charge a dead authorisation.
+- If the customer completes the card form after the transfer was cancelled, the new hold is released straight away.
+- Webhooks are verified over the exact bytes received (the gateway forwards them unchanged); a bad or old signature is
+  refused and never stored, so a forged event can't "use up" a real event id. Duplicates are acknowledged and ignored.
+
+### D-49 Ledger postings
+The ledger learns *facts* from events (`ledger.transfer_facts`: captured, payout, failed, refunded, screening) and derives
+journals from them, each with a deterministic `ref` (`capture:`, `payout:`, `payout-reversal:`, `refund:`), so every
+journal is posted at most once. Kafka only orders events within one topic; deriving journals from facts gives the same
+books whatever order they arrive in, with no waiting or retries. Postings (all balanced per currency, enforced by the
+database):
+
+| Event | Journal |
+|---|---|
+| payment.captured | D payment_clearing (total) · C customer_funds (send amount) · C fee_revenue (fee + surcharge) |
+| payout.dispatched | D customer_funds · C fx_position (CAD) · D fx_position · C partner_prefund (PKR / INR) |
+| transfer FAILED after a payout | the payout journal reversed (the money came back to the partner pre-fund) |
+| payment.refunded | D customer_funds · D fee_revenue · C payment_clearing (partial refunds: fees in proportion) |
+
+A payout in a currency without accounts is refused and ends in `dlq.ledger-service` for an operator.
+
+### D-50 Reports
+The daily regulatory summary (`/v1/admin/reports/daily-summary`) reads `core` and `compliance` through `ap_reporting`
+(read-only on every schema); transfers are counted by UTC day. "Flagged" comes from `compliance.screening-completed`
+events (the reason ledger-service consumes that topic). Searching the audit log writes an audit row itself, so there is
+a record of who looked at what.
+
+### D-51 Reconciliation
+Every night after `RECONCILIATION_HOUR_UTC` (02:00), ledger-service compares the payouts it recorded as dispatched on the
+previous UTC day with the payout partner's settlement report for that day, matched by our payout id. Issues:
+`missing_at_partner`, `missing_in_ledger` (with what payment-service knows about it), `amount_mismatch`,
+`currency_mismatch`, `status_mismatch` (the partner failed it but the ledger didn't reverse it, or the other way round).
+A payout the partner still has in flight counts as matched. A day is reconciled once per partner; discrepancies stay open
+until an admin resolves them with a note. `npm run ledger:reconcile -- --date=YYYY-MM-DD` runs a day by hand. Known
+limit: a payout dispatched seconds before midnight that the partner accepts after midnight shows up as a discrepancy on
+both days.
+
+### D-52 Step 5 plumbing
+- The payment stand-in is removed (payment-service is real); the compliance stand-in stays until Step 6.
+- mock-providers keeps its state in `var/mock-providers/` (git-ignored) so payments and payouts survive a restart,
+  and drops each day's settlement report there as a file, as a partner would on SFTP.
+- Node toolkit: `createService({ rawBody: true })` keeps the exact request body for signature checks; webhook signing
+  and verification helpers. Python toolkit: `InboxConsumer` (inbox, retries, dead letters, after-commit follow-ups) and
+  `InternalClient`, mirrors of the Node ones.

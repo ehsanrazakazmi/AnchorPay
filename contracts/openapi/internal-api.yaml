@@ -489,7 +489,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [transferId, userId, method, amount]
+              required: [transferId, userId, method, amount, fee, cardSurcharge]
               properties:
                 transferId:
                   $ref: 'common.yaml#/components/schemas/Uuid'
@@ -499,6 +499,12 @@ paths:
                   $ref: 'common.yaml#/components/schemas/FundingMethod'
                 amount:
                   description: Total charge (send amount + fee + surcharge).
+                  $ref: 'common.yaml#/components/schemas/Money'
+                fee:
+                  description: The part of the total that is AnchorPay's fee (payment.captured carries it for the ledger, D-46).
+                  $ref: 'common.yaml#/components/schemas/Money'
+                cardSurcharge:
+                  description: The part of the total that is the card surcharge (0 for bank debit).
                   $ref: 'common.yaml#/components/schemas/Money'
                 returnUrl:
                   type: string

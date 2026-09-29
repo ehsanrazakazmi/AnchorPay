@@ -46,9 +46,15 @@ flowchart LR
 
 Why these services and not the PDF's full list: [DECISIONS.md D-04](DECISIONS.md#d-04-services).
 
-Until Steps 5–6 are built, `services/stand-ins` answers as **compliance-service (5001)** and **payment-service (4003)**
-with in-memory, scripted outcomes, so transfers run end to end today. Each stand-in switches itself off once the real
-service exists ([DECISIONS.md D-39](DECISIONS.md#d-39-temporary-stand-ins-for-compliance-service-and-payment-service)).
+Until Step 6 is built, `services/stand-ins` answers as **compliance-service (5001)** with in-memory, scripted
+outcomes, so transfers run end to end today; it switches itself off once the real service exists
+([DECISIONS.md D-39](DECISIONS.md#d-39-temporary-stand-ins-for-compliance-service-and-payment-service)).
+
+**mock-providers (4900)** plays the external companies, for free: a card processor with a hosted card form and test
+cards, a bank debit and a payout partner (with a daily settlement report). payment-service talks to them through the
+same adapters a real provider would plug into, and they call back with signed webhooks through the gateway
+([D-44](DECISIONS.md#d-44-card-payments-mock-processor-by-default-stripe-test-mode-optional) to
+[D-47](DECISIONS.md#d-47-payouts)).
 
 ## Routing
 The gateway loads `contracts/openapi/public-api.yaml` at start-up and routes every operation to the service in its

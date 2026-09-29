@@ -1,0 +1,14 @@
+{
+  "name": "@anchorpay/mock-providers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local, free stand-ins for the external providers: card processor (hosted card form), bank debit and payout partner.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anchorpay/service-kit": "*"
+  }
+}

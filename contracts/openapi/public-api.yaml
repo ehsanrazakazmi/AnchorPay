@@ -2158,6 +2158,32 @@ paths:
         default:
           $ref: 'common.yaml#/components/responses/ServerError'
 
+  /webhooks/mock-card:
+    post:
+      tags: [Webhooks]
+      operationId: mockCardWebhook
+      summary: Card authorisation results from the local mock card processor (DECISIONS D-44)
+      description: >-
+        Sent by mock-providers after the customer submits the mock card form. Same signature scheme as the payout
+        partner (X-Signature / X-Timestamp, MOCK_WEBHOOK_SECRET). Duplicate event ids are acknowledged and ignored.
+      security:
+        - providerSignature: []
+      x-owner-service: payment-service
+      x-roles: [provider]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MockCardEvent'
+      responses:
+        '200':
+          $ref: '#/components/responses/WebhookAccepted'
+        '400':
+          $ref: '#/components/responses/InvalidSignature'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
   /webhooks/kyc-vendor:
     post:
       tags: [Webhooks]
@@ -3111,6 +3137,33 @@ components:
           description: Our payout id, sent when the payout was created.
         failureCode:
           type: string
+        occurredAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
+
+    MockCardEvent:
+      type: object
+      required: [eventId, type, paymentIntentId, reference, occurredAt]
+      properties:
+        eventId:
+          type: string
+        type:
+          type: string
+          enum: [card.authorized, card.declined]
+        paymentIntentId:
+          type: string
+        reference:
+          type: string
+          description: Our payment id, sent when the payment intent was created.
+        cardBrand:
+          type: string
+        cardLast4:
+          type: string
+          pattern: '^[0-9]{4}$'
+        failureCode:
+          type: string
+          enum: [card_declined, insufficient_funds]
+        authorizationExpiresAt:
+          $ref: 'common.yaml#/components/schemas/Timestamp'
         occurredAt:
           $ref: 'common.yaml#/components/schemas/Timestamp'
 
