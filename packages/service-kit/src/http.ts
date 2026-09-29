@@ -4,7 +4,7 @@
 //  - routes registered by operationId, so method/path/schema/roles always match the contract
 //  - public operations only accept requests forwarded by the gateway (X-Internal-Token) and check
 //    the caller's role; internal operations only accept services listed in x-callers
-import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import addFormatsModule from 'ajv-formats';
 import { loadOperations, type Operation } from './contract.ts';
@@ -112,7 +112,7 @@ export function createService(options: ServiceOptions): Service {
   const app: FastifyInstance = Fastify({
     loggerInstance: log as unknown as FastifyBaseLogger,
     genReqId: (req) => requestIdFrom(req.headers['x-request-id']),
-    requestIdLogLabel: 'requestId',
+    logController: new LogController({ requestIdLogLabel: 'requestId' }),
     bodyLimit: options.bodyLimit ?? 1024 * 1024,
     trustProxy: '127.0.0.1',
   });

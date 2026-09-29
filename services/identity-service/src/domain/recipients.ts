@@ -1,5 +1,6 @@
 import type { PiiCipher, Queryable } from '@anchorpay/service-kit';
-import { assertDestination, assertWalletNumber, last4, maskAccount, maskWallet, normaliseAccountNumber } from './validation.ts';
+import { assertDestination, type Destination } from './corridors.ts';
+import { assertWalletNumber, last4, maskAccount, maskWallet, normaliseAccountNumber } from './validation.ts';
 
 export interface RecipientRow {
   id: string;
@@ -49,8 +50,8 @@ export class Recipients {
     this.cipher = cipher;
   }
 
-  async insert(q: Queryable, userId: string, r: RecipientInput): Promise<RecipientRow> {
-    assertDestination(r.country, r.currency, r.payoutMethod);
+  async insert(q: Queryable, userId: string, r: RecipientInput, destinations: Destination[]): Promise<RecipientRow> {
+    assertDestination(destinations, r.country, r.currency, r.payoutMethod);
     const c = this.cipher;
     let accountNumber: string | null = null;
     let lastFour: string;

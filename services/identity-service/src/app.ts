@@ -2,6 +2,7 @@ import {
   createLogger, createMessenger, createPool, createRedis, createService, PiiCipher, type Logger, type Messenger, type Pool, type Redis,
   type Service,
 } from '@anchorpay/service-kit';
+import { HttpCorridorCatalog, type CorridorCatalog } from './domain/corridors.ts';
 import { Recipients } from './domain/recipients.ts';
 import { TokenService } from './domain/tokens.ts';
 import { Users } from './domain/users.ts';
@@ -18,6 +19,8 @@ export interface Infrastructure {
   messenger: Messenger;
   cipher: PiiCipher;
   log: Logger;
+  /** Destinations for recipients; defaults to fx-service's corridor list. */
+  corridors?: CorridorCatalog;
 }
 
 export function defaultInfrastructure(): Infrastructure {
@@ -33,6 +36,7 @@ export function defaultInfrastructure(): Infrastructure {
 export function buildIdentityService(infra: Infrastructure): { service: Service; deps: Deps } {
   const deps: Deps = {
     ...infra,
+    corridors: infra.corridors ?? new HttpCorridorCatalog(),
     tokens: new TokenService(infra.redis),
     users: new Users(infra.cipher),
     verification: new Verification(infra.redis, infra.messenger),

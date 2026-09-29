@@ -40,6 +40,11 @@ To change a decision: open a PR that edits this file and the affected contract/m
 | D-30 | Verification secrets | Email links, SMS codes and reset links go straight to the messenger, never through Kafka. |
 | D-31 | Recipient destinations | Validated against a built-in list of corridors until fx-service exists. |
 | D-32 | Test isolation | Tests use `anchorpay_test` (rebuilt each run) and a per-run Redis key prefix. |
+| D-33 | Python toolkit | `packages/py-service-kit` mirrors the Node kit; handlers are synchronous (thread pool). |
+| D-34 | fx-service rules | 60 s quotes, single-use; 30-min locks; no pricing on rates older than 60 s. |
+| D-35 | Recipient destinations (done) | identity-service reads fx-service's corridors (cached 5 min, stale-if-down). |
+| D-36 | Migration fix | The seed migration's Down was made data-safe (an exception to "never edit a merged migration"). |
+| D-37 | Audit robustness | A malformed client address is stored as empty instead of failing the request. |
 
 ---
 
@@ -242,7 +247,7 @@ mailbox `logs/mailbox.log` locally). Events stay free of personal data and secre
 ### D-31 Recipient destinations
 identity-service can't read fx-service's corridor table (D-03), so recipients are validated against a built-in list
 matching the seeded corridors (Pakistan: PKR, bank or JazzCash/Easypaisa; India: INR, bank). **Step 3 replaces it with a
-lookup of fx-service's corridors.** Pakistani IBANs are checked (24 characters, mod-97); wallet numbers must be Pakistani
+lookup of fx-service's corridors** (done: D-35). Pakistani IBANs are checked (24 characters, mod-97); wallet numbers must be Pakistani
 mobile numbers. Payout details are immutable (create a new recipient instead); deleting is a soft delete so past
 transfers keep their recipient. Full account/wallet numbers are only returned to payment-service.
 
@@ -250,3 +255,47 @@ transfers keep their recipient. Full account/wallet numbers are only returned to
 `npm test` rebuilds the `anchorpay_test` database from the migrations (every down, then every up) and uses a random Redis
 key prefix per run, so tests never touch dev data. Kafka tests use `test.*` topics. Coverage target 80 % (enforced in
 CI), currently about 95 % of lines.
+
+---
+
+## Step 3 decisions (fx-service, Python toolkit)
+
+### D-33 Python toolkit
+`packages/py-service-kit` (`anchorpay_kit`) mirrors the Node kit so every service behaves the same: contract-driven
+routes (`@svc.handle("<operationId>")`, JSON Schema 2020-12 validation with query coercion), gateway-only public routes,
+`x-callers` on internal routes, problem+json errors, request ids, JSON logs with secrets redacted, outbox relay, audit,
+Redis with the shared key prefix, and `assert_matches_contract` for tests. FastAPI is used for routing only (no Pydantic
+models) because the contract already defines the schemas. Handlers are plain synchronous functions run in a thread pool:
+psycopg's async mode can't use the Windows event loop, and synchronous code is simpler to reason about. Background jobs
+(poller, sweeper, relay) are threads started with the service (`on_lifecycle`). Python is linted with ruff; tests use
+pytest against the same isolated test database. `npm run py:setup` creates `.venv` (like node_modules, git-ignored).
+
+### D-34 fx-service rules
+- **Rates:** the free source is fetched at most once an hour; every 30 s a rate within +/-5 bps of it is published to
+  Redis (60 s TTL) and recorded in `fx.rate_snapshots`. If publishing stops, the cached rate expires and **quotes are
+  refused (503) rather than priced on a stale rate**. Only pairs of enabled corridors are published.
+- **Quotes** live 60 s in Redis and remember the signed-in user (if any). Locking takes the quote (single use), so one
+  quote can never be locked for two transfers; a quote made by one user can't be locked for another.
+- **Locks** last 30 min (`FX_LOCK_TTL_SECONDS`). Locking is idempotent per transfer + quote; a re-quote releases the
+  transfer's previous active lock. `consume` is idempotent; an expired lock answers 409 RATE_LOCK_EXPIRED **after**
+  committing the expiry and its `fx.lock-expired` event. A sweeper expires overdue locks every 10 s.
+- **Admin pricing changes** (spread, fee, surcharge, limits, enabled) are validated and audited with before/after values.
+
+### D-35 Recipient destinations now come from fx-service
+Completes D-31: identity-service reads `GET /internal/fx/corridors` (new internal operation; the `Corridor` schema moved
+to `common.yaml` so both APIs share it). The list is cached 5 minutes; if fx-service is down the last good list is used,
+and only if identity-service has never seen a list are new recipients refused (503). Disabling a corridor immediately
+(within 5 minutes) stops new recipients for that country.
+
+### D-36 Seed migration made rollback-safe (an exception)
+Running the full test suites exposed a real bug: `20260926000800_seed_reference_data` could not be rolled back once any
+rate lock, KYC profile or ledger entry referenced its rows (the Foundation only ever tested rollback on an empty
+database). Its Down now deletes only unreferenced seed rows and its Up is idempotent (`ON CONFLICT DO NOTHING`), so a
+rollback followed by a re-apply always works. This edits a migration that was already on `main`, against
+docs/database.md rule 1. It was accepted because no environment other than developer laptops exists yet and the change
+only affects rollback behaviour. From now on the rule applies without exceptions.
+
+### D-37 Audit writes never fail a request
+If the client address isn't a valid IP (the Python test client reports `testclient`), the audit row stores no IP instead
+of failing the database insert, and with it the whole request. Applied to both toolkits.
+

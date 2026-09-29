@@ -2,7 +2,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import replyFrom from '@fastify/reply-from';
-import Fastify, { type FastifyBaseLogger, type FastifyInstance, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyBaseLogger, type FastifyInstance, type FastifyRequest } from 'fastify';
 import {
   AppError, env, envInt, IDENTITY_HEADERS, installErrorHandling, problem, requestIdFrom, sendProblem, serviceUrl,
   type AuthContext, type Logger, type Redis,
@@ -44,7 +44,7 @@ export async function buildGateway(options: GatewayOptions): Promise<FastifyInst
   const app: FastifyInstance = Fastify({
     loggerInstance: log as unknown as FastifyBaseLogger,
     genReqId: (req) => requestIdFrom(req.headers['x-request-id']),
-    requestIdLogLabel: 'requestId',
+    logController: new LogController({ requestIdLogLabel: 'requestId' }),
     trustProxy: false,
   });
   installErrorHandling(app);

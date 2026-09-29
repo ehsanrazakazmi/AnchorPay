@@ -5,6 +5,14 @@ import {
 } from '@anchorpay/service-kit';
 import { assertMatchesContract } from '@anchorpay/service-kit/testing';
 import { buildIdentityService } from '../src/app.ts';
+import { StaticCorridorCatalog } from '../src/domain/corridors.ts';
+
+/** Mirrors the seeded fx.corridors (tests don't need fx-service running). */
+export const TEST_DESTINATIONS = new StaticCorridorCatalog([
+  { country: 'PK', currency: 'PKR', payoutMethods: ['bank_account', 'mobile_wallet'], enabled: true },
+  { country: 'IN', currency: 'INR', payoutMethods: ['bank_account'], enabled: true },
+  { country: 'BD', currency: 'BDT', payoutMethods: ['bank_account'], enabled: false },
+]);
 
 /** Captures outgoing messages so tests can read verification codes and links. */
 export class MemoryMessenger implements Messenger {
@@ -31,14 +39,15 @@ export class MemoryMessenger implements Messenger {
   }
 }
 
-export function buildTestService() {
+export function buildTestService(options: { cipher?: PiiCipher } = {}) {
   const messenger = new MemoryMessenger();
   const infra = {
     pool: createPool('core', 'identity-test'),
     redis: createRedis(),
     messenger,
-    cipher: PiiCipher.fromEnv(),
+    cipher: options.cipher ?? PiiCipher.fromEnv(),
     log: createLogger('identity-test'),
+    corridors: TEST_DESTINATIONS,
   };
   const { service, deps } = buildIdentityService(infra);
   const reporting = createPool('reporting', 'identity-test');

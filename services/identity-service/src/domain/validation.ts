@@ -1,20 +1,5 @@
 import { AppError, type FieldError } from '@anchorpay/service-kit';
 
-/** Destination countries recipients can be created for, with currency and payout methods (fx.corridors seed). */
-export const DESTINATIONS: Record<string, { currency: string; payoutMethods: string[] }> = {
-  PK: { currency: 'PKR', payoutMethods: ['bank_account', 'mobile_wallet'] },
-  IN: { currency: 'INR', payoutMethods: ['bank_account'] },
-};
-
-export function assertDestination(country: string, currency: string, payoutMethod: string): void {
-  const d = DESTINATIONS[country];
-  if (!d) throw new AppError('CORRIDOR_UNAVAILABLE', `Sending to ${country} is not available.`);
-  if (d.currency !== currency) throw new AppError('CORRIDOR_UNAVAILABLE', `Recipients in ${country} are paid in ${d.currency}, not ${currency}.`);
-  if (!d.payoutMethods.includes(payoutMethod)) {
-    throw new AppError('CORRIDOR_UNAVAILABLE', `${payoutMethod.replace('_', ' ')} payouts are not available for ${country}.`);
-  }
-}
-
 /** Age in whole years on `today` (UTC). */
 export function ageOn(dateOfBirth: string, today = new Date()): number {
   const [y, m, d] = dateOfBirth.split('-').map(Number) as [number, number, number];

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anchorpay-service-kit"
+version = "0.1.0"
+description = "Shared runtime for AnchorPay Python services: config, logging, errors, contracts, DB, Redis, outbox, audit."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.141",
+  "uvicorn>=0.54",
+  "psycopg[binary]>=3.3",
+  "psycopg-pool>=3.3",
+  "redis>=8.1",
+  "confluent-kafka>=2.15",
+  "jsonschema[format-nongpl]>=4.26",
+  "referencing>=0.36",
+  "pyyaml>=6.0",
+  "python-dotenv>=1.2",
+  "httpx>=0.28",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=9.1", "pytest-cov>=7.1", "ruff>=0.16"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

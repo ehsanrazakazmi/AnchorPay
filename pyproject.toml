@@ -1,0 +1,26 @@
+# Tool configuration for the Python services (packages are defined in their own pyproject.toml files).
+[tool.pytest.ini_options]
+testpaths = ["packages/py-service-kit/tests", "services/fx-service/tests"]
+addopts = "-q --strict-markers --import-mode=importlib"
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning", "ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.coverage.run]
+source = ["packages/py-service-kit/src", "services/fx-service/src"]
+omit = ["*/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 140
+target-version = "py312"
+src = ["packages/py-service-kit/src", "services/fx-service/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "RUF"]
+ignore = ["S101", "S608", "S311", "RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["S105", "S106"]

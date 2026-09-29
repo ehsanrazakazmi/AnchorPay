@@ -222,6 +222,33 @@ paths:
           $ref: 'common.yaml#/components/responses/ServerError'
 
   # ---------------------------------------------------------------- fx-service
+  /internal/fx/corridors:
+    get:
+      tags: [fx-service]
+      operationId: internalListCorridors
+      summary: Every corridor, enabled or not (to validate recipients and transfers against current config)
+      x-owner-service: fx-service
+      x-callers: [identity-service, transfer-service]
+      responses:
+        '200':
+          description: Corridors
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: 'common.yaml#/components/schemas/Corridor'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: 'common.yaml#/components/responses/Forbidden'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
   /internal/fx/rates/{base}/{quote}:
     parameters:
       - name: base

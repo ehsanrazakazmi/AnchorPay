@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { Queryable } from './db.ts';
 
 export interface AuditEntry {
@@ -21,6 +22,7 @@ export async function writeAudit(client: Queryable, e: AuditEntry): Promise<void
     `INSERT INTO audit.audit_log (service, actor_type, actor_id, action, entity_type, entity_id, before, after, request_id, ip, user_agent)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [e.service, e.actorType, e.actorId ?? null, e.action, e.entityType, e.entityId ?? null, e.before ?? null, e.after ?? null,
-      e.requestId ?? null, e.ip ?? null, e.userAgent?.slice(0, 300) ?? null],
+      // A malformed address must never make the audit write (and so the request) fail.
+      e.requestId ?? null, e.ip && isIP(e.ip) ? e.ip : null, e.userAgent?.slice(0, 300) ?? null],
   );
 }

@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anchorpay-fx-service"
+version = "0.1.0"
+description = "Corridors, live rates, quotes and 30-minute rate locks (Module 3)."
+requires-python = ">=3.12"
+dependencies = ["anchorpay-service-kit", "httpx>=0.28"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

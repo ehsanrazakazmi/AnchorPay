@@ -6,7 +6,11 @@ import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './lib/paths.mjs';
 
-const available = readdirSync(join(ROOT, 'services')).filter((s) => existsSync(join(ROOT, 'services', s, 'src', 'server.ts')));
+const isNode = (s) => existsSync(join(ROOT, 'services', s, 'src', 'server.ts'));
+const pyModule = (s) => s.replaceAll('-', '_');
+const isPython = (s) => existsSync(join(ROOT, 'services', s, 'src', pyModule(s), '__main__.py'));
+const available = readdirSync(join(ROOT, 'services')).filter((s) => isNode(s) || isPython(s));
+const venvPython = join(ROOT, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
 const wanted = process.argv.slice(2);
 const unknown = wanted.filter((s) => !available.includes(s));
 if (unknown.length) {
@@ -20,10 +24,11 @@ const watch = !process.env.NO_WATCH;
 
 const children = services.map((name, i) => {
   const tsx = join(ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
-  const child = spawn(process.execPath, [tsx, ...(watch ? ['watch', '--clear-screen=false'] : []), join('services', name, 'src', 'server.ts')], {
-    cwd: ROOT,
-    env: process.env,
-  });
+  // Python services run without auto-reload: restart them (Ctrl+C, npm run dev) after changing their code.
+  const [cmd, args] = isNode(name)
+    ? [process.execPath, [tsx, ...(watch ? ['watch', '--clear-screen=false'] : []), join('services', name, 'src', 'server.ts')]]
+    : [venvPython, ['-m', pyModule(name)]];
+  const child = spawn(cmd, args, { cwd: ROOT, env: { ...process.env, PYTHONUNBUFFERED: '1' } });
   const prefix = `\x1b[${colors[i % colors.length]}m${name.padEnd(width)}\x1b[0m |`;
   for (const stream of [child.stdout, child.stderr]) {
     let buffer = '';

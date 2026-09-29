@@ -4,12 +4,14 @@ Cross-border money transfer platform: people in **Canada** send money to **Pakis
 sanctions and fraud screening, live exchange rates with a 30-minute rate lock, payment collection, payout and a
 full audit trail, built as microservices on a zero-cost local stack.
 
-**Status:** Foundation complete. Built so far: the shared service toolkit, **identity-service** (sign-up, login,
-tokens, verification, profile, recipients, staff admin) and the **gateway**. Next: fx-service (pricing and rate locks).
+**Status:** Built so far: shared toolkits (Node + Python), **gateway**, **identity-service** (sign-up, login,
+tokens, verification, profile, recipients, staff admin) and **fx-service** (corridors, live rates, quotes, 30-minute rate
+locks). Next: transfer-service (the transfer state machine).
 
 ## Quick start (Windows)
 ```powershell
 npm install
+npm run py:setup                                                            # Python services (once)
 powershell -ExecutionPolicy Bypass -File infra\local\install-devtools.ps1   # Java + Kafka + Garnet (once)
 npm run setup:env -- --pg-superuser-password=<postgres password>            # .env + keys (once)
 npm run infra:start
@@ -29,8 +31,8 @@ db/migrations/    SQL migrations (up + down)
 infra/local/      installer + start/stop scripts + Kafka config for the local stack
 scripts/          setup, db, kafka, contract checks, verify, API docs server
 docs/             architecture, decisions, state machine, database, kafka, api, secrets, setup, sign-off
-packages/         service-kit: shared runtime for every Node service
-services/         gateway, identity-service (built) · the other services come in the next steps
+packages/         service-kit (Node) and py-service-kit (Python): shared runtime for every service
+services/         gateway, identity-service, fx-service (built) · the others come in the next steps
 apps/web/         Next.js customer app + admin portal (Module 4)     — next phases
 ```
 

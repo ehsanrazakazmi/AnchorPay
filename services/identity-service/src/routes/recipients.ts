@@ -5,7 +5,7 @@ import { audit, type Deps } from '../deps.ts';
 const MAX_RECIPIENTS = 100;
 
 export function registerRecipientRoutes(svc: Service, deps: Deps, recipients: Recipients): void {
-  const { pool } = deps;
+  const { pool, corridors } = deps;
   const notFound = () => new AppError('NOT_FOUND', 'Recipient not found.');
 
   svc.handle('listRecipients', async (req) => {
@@ -15,13 +15,14 @@ export function registerRecipientRoutes(svc: Service, deps: Deps, recipients: Re
 
   svc.handle('createRecipient', async (req, reply) => {
     const auth = requireAuth(req);
+    const destinations = await corridors.destinations(req.id);
     const row = await withTransaction(pool, async (client) => {
       const { rows } = await client.query<{ n: number }>(
         'SELECT count(*)::int AS n FROM core.recipients WHERE user_id = $1 AND deleted_at IS NULL',
         [auth.userId],
       );
       if (rows[0]!.n >= MAX_RECIPIENTS) throw new AppError('LIMIT_EXCEEDED', `You can save up to ${MAX_RECIPIENTS} recipients.`);
-      const created = await recipients.insert(client, auth.userId, req.body as RecipientInput);
+      const created = await recipients.insert(client, auth.userId, req.body as RecipientInput, destinations);
       await audit(client, req, 'recipient.created', { type: 'recipient', id: created.id }, {
         after: { country: created.country, payoutMethod: created.payout_method, last4: created.account_last4 },
       });

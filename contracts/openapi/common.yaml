@@ -266,6 +266,40 @@ components:
         total:
           type: integer
 
+    Corridor:
+      type: object
+      required: [code, sendCountry, sendCurrency, receiveCountry, receiveCurrency, payoutMethods, minSend, maxSend,
+                 fixedFee, spreadPercent, cardSurchargePercent, deliveryEstimate, enabled]
+      properties:
+        code:
+          $ref: '#/components/schemas/CorridorCode'
+        sendCountry:
+          $ref: '#/components/schemas/Country'
+        sendCurrency:
+          $ref: '#/components/schemas/Currency'
+        receiveCountry:
+          $ref: '#/components/schemas/Country'
+        receiveCurrency:
+          $ref: '#/components/schemas/Currency'
+        payoutMethods:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayoutMethod'
+        minSend:
+          $ref: '#/components/schemas/Money'
+        maxSend:
+          $ref: '#/components/schemas/Money'
+        fixedFee:
+          $ref: '#/components/schemas/Money'
+        spreadPercent:
+          $ref: '#/components/schemas/Percent'
+        cardSurchargePercent:
+          $ref: '#/components/schemas/Percent'
+        deliveryEstimate:
+          type: string
+        enabled:
+          type: boolean
+
     Quote:
       type: object
       description: >-

@@ -563,7 +563,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Corridor'
+                      $ref: 'common.yaml#/components/schemas/Corridor'
         '429':
           $ref: 'common.yaml#/components/responses/TooManyRequests'
         default:
@@ -2097,7 +2097,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Corridor'
+                $ref: 'common.yaml#/components/schemas/Corridor'
         '400':
           $ref: 'common.yaml#/components/responses/BadRequest'
         '401':
@@ -2527,40 +2527,6 @@ components:
         phone:
           type: string
           pattern: '^\+[1-9][0-9]{7,14}$'
-
-    Corridor:
-      type: object
-      required: [code, sendCountry, sendCurrency, receiveCountry, receiveCurrency, payoutMethods, minSend, maxSend,
-                 fixedFee, spreadPercent, cardSurchargePercent, deliveryEstimate, enabled]
-      properties:
-        code:
-          $ref: 'common.yaml#/components/schemas/CorridorCode'
-        sendCountry:
-          $ref: 'common.yaml#/components/schemas/Country'
-        sendCurrency:
-          $ref: 'common.yaml#/components/schemas/Currency'
-        receiveCountry:
-          $ref: 'common.yaml#/components/schemas/Country'
-        receiveCurrency:
-          $ref: 'common.yaml#/components/schemas/Currency'
-        payoutMethods:
-          type: array
-          items:
-            $ref: 'common.yaml#/components/schemas/PayoutMethod'
-        minSend:
-          $ref: 'common.yaml#/components/schemas/Money'
-        maxSend:
-          $ref: 'common.yaml#/components/schemas/Money'
-        fixedFee:
-          $ref: 'common.yaml#/components/schemas/Money'
-        spreadPercent:
-          $ref: 'common.yaml#/components/schemas/Percent'
-        cardSurchargePercent:
-          $ref: 'common.yaml#/components/schemas/Percent'
-        deliveryEstimate:
-          type: string
-        enabled:
-          type: boolean
 
     QuoteRequest:
       type: object

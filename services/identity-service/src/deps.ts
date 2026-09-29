@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { writeAudit, type Logger, type Messenger, type PiiCipher, type Pool, type Queryable, type Redis } from '@anchorpay/service-kit';
+import type { CorridorCatalog } from './domain/corridors.ts';
 import type { TokenService } from './domain/tokens.ts';
 import type { Users } from './domain/users.ts';
 import type { Verification } from './domain/verification.ts';
@@ -12,6 +13,7 @@ export interface Deps {
   cipher: PiiCipher;
   messenger: Messenger;
   log: Logger;
+  corridors: CorridorCatalog;
   tokens: TokenService;
   users: Users;
   verification: Verification;
