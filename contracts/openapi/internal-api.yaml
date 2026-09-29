@@ -138,7 +138,7 @@ paths:
             $ref: 'common.yaml#/components/schemas/Uuid'
       responses:
         '200':
-          description: Counts and totals (transfers that were not cancelled)
+          description: Counts and totals (cancelled transfers never count; see TransferStats)
           content:
             application/json:
               schema:
@@ -327,6 +327,33 @@ paths:
           $ref: 'common.yaml#/components/responses/Unauthorized'
         '422':
           $ref: 'common.yaml#/components/responses/UnprocessableEntity'
+        default:
+          $ref: 'common.yaml#/components/responses/ServerError'
+
+  /internal/fx/quotes/{quoteId}:
+    parameters:
+      - name: quoteId
+        in: path
+        required: true
+        schema:
+          $ref: 'common.yaml#/components/schemas/Uuid'
+    get:
+      tags: [fx-service]
+      operationId: internalGetQuote
+      summary: Read a quote without using it (amounts for the limit check before the rate is locked)
+      x-owner-service: fx-service
+      x-callers: [transfer-service]
+      responses:
+        '200':
+          description: The quote, still valid
+          content:
+            application/json:
+              schema:
+                $ref: 'common.yaml#/components/schemas/Quote'
+        '401':
+          $ref: 'common.yaml#/components/responses/Unauthorized'
+        '404':
+          $ref: 'common.yaml#/components/responses/NotFound'
         default:
           $ref: 'common.yaml#/components/responses/ServerError'
 
@@ -775,6 +802,11 @@ components:
               type: string
         createdAt:
           $ref: 'common.yaml#/components/schemas/Timestamp'
+        deletedAt:
+          description: Set when the user removed the recipient; no new transfers may use it.
+          anyOf:
+            - $ref: 'common.yaml#/components/schemas/Timestamp'
+            - type: 'null'
 
     InternalTransfer:
       type: object
@@ -824,6 +856,9 @@ components:
 
     TransferStats:
       type: object
+      description: >
+        A sender's recent activity (DECISIONS D-40). Counts include every attempt that was not cancelled; amounts
+        (CAD) only include money that moved or may still move, so FAILED and REFUNDED transfers are left out.
       required: [countLast1h, countLast24h, amountLast24h, amountLast30d, recentRoundAmountRepeats]
       properties:
         countLast1h:
@@ -836,10 +871,12 @@ components:
           $ref: 'common.yaml#/components/schemas/Money'
         recentRoundAmountRepeats:
           type: integer
-          description: How many transfers in the last 7 days had exactly the same round amount as the latest one.
+          description: >
+            If the latest transfer is a round amount (a whole multiple of CAD 100), how many other transfers in the
+            last 7 days had exactly that amount; otherwise 0.
         recipientSeenBefore:
           type: boolean
-          description: Present when recipientId was given.
+          description: Present when recipientId was given; true if an earlier transfer (not cancelled) went to this recipient.
 
     LimitCheckResult:
       type: object

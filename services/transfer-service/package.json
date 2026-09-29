@@ -1,0 +1,14 @@
+{
+  "name": "@anchorpay/transfer-service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Transfer state machine: create, lock, screen, collect, pay out, recover (Module 1).",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@anchorpay/service-kit": "*"
+  }
+}

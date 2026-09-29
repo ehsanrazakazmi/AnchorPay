@@ -5,7 +5,7 @@ import { writeAudit } from '../src/audit.ts';
 import { createPool, withTransaction } from '../src/db.ts';
 import { REPO_ROOT } from '../src/env.ts';
 import { assertValidEvent, buildEvent, enqueueEvent, type EventEnvelope } from '../src/events.ts';
-import { createKafka, OutboxRelay, startConsumer } from '../src/kafka.ts';
+import { createKafka, OutboxRelay, startConsumer, waitForAssignment } from '../src/kafka.ts';
 import { createLogger } from '../src/logger.ts';
 import { LogMessenger } from '../src/messaging.ts';
 
@@ -60,24 +60,31 @@ describe('events', () => {
   });
 });
 
-describe('outbox relay + consumer', () => {
+describe('outbox relay + consumer', { timeout: 90_000 }, () => {
   it('publishes outbox rows, and the consumer processes each event exactly once', async () => {
     const seen: string[] = [];
+    const followUps: string[] = [];
     const consumer = await startConsumer({
       kafka, service: `service-kit-test-${Date.now()}`, topics: [TEST_TOPIC], pool, schema: 'core', log, fromBeginning: false,
       retryDelaysMs: [],
       handler: async (event) => {
         seen.push(event.eventId);
+        return async () => {
+          followUps.push(event.eventId); // runs only after the inbox transaction committed
+        };
       },
     });
-    await new Promise((r) => setTimeout(r, 3000)); // let the group join before producing
+    await consumer.ready(); // the group owns its partition: new messages will be seen
 
     const event = registered();
     await pool.query("INSERT INTO core.outbox (id, topic, message_key, payload) VALUES ($1, $2, 'k', $3)", [event.eventId, TEST_TOPIC, event]);
     const relay = new OutboxRelay({ pool, schema: 'core', kafka, log });
+    // Other test files share core.outbox (transfer tests add hundreds of rows), so keep relaying until ours is out.
+    const published = async () =>
+      (await pool.query('SELECT published_at FROM core.outbox WHERE id = $1', [event.eventId])).rows[0].published_at !== null;
     expect(await relay.runOnce()).toBeGreaterThanOrEqual(1);
-    const { rows } = await pool.query('SELECT published_at, attempts FROM core.outbox WHERE id = $1', [event.eventId]);
-    expect(rows[0].published_at).not.toBeNull();
+    for (let batch = 0; batch < 50 && !(await published()); batch++) await relay.runOnce();
+    expect(await published()).toBe(true);
 
     // Simulate a re-delivery after a crash: the same event published again must be skipped.
     const producer = kafka.producer();
@@ -88,6 +95,7 @@ describe('outbox relay + consumer', () => {
     await expect.poll(() => seen.filter((id) => id === event.eventId).length, { timeout: 15_000 }).toBe(1);
     await new Promise((r) => setTimeout(r, 1500));
     expect(seen.filter((id) => id === event.eventId)).toHaveLength(1);
+    expect(followUps.filter((id) => id === event.eventId)).toHaveLength(1); // not repeated for the duplicate
     await relay.stop();
     await consumer.stop();
   });
@@ -110,7 +118,7 @@ describe('outbox relay + consumer', () => {
     await dlqConsumer.subscribe({ topics: [TEST_DLQ] });
     const dead: Record<string, unknown>[] = [];
     await dlqConsumer.run({ eachMessage: async ({ message }) => { dead.push(JSON.parse(message.value!.toString())); } });
-    await new Promise((r) => setTimeout(r, 3000));
+    await Promise.all([consumer.ready(), waitForAssignment(dlqConsumer)]);
 
     const producer = kafka.producer();
     await producer.connect();

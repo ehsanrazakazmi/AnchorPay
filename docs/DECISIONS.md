@@ -45,6 +45,12 @@ To change a decision: open a PR that edits this file and the affected contract/m
 | D-35 | Recipient destinations (done) | identity-service reads fx-service's corridors (cached 5 min, stale-if-down). |
 | D-36 | Migration fix | The seed migration's Down was made data-safe (an exception to "never edit a merged migration"). |
 | D-37 | Audit robustness | A malformed client address is stored as empty instead of failing the request. |
+| D-38 | Transfer workflow | Transactions for state, idempotent calls outside them, progress markers, 30 s recovery job. |
+| D-39 | Stand-ins | Temporary in-memory compliance + payment services with magic amounts until Steps 5–6. |
+| D-40 | Transfer stats | Counts skip cancelled transfers; amounts also skip failed/refunded ones; round = CAD 100s. |
+| D-41 | Rate lock expiry | Cancel / fail / ask to reconfirm depending on the step; re-quotes never change the CAD total. |
+| D-42 | Cancel + idempotency | Cancel only before the transfer is cleared to charge; 24 h Idempotency-Key replay. |
+| D-43 | Toolkit fixes | No JSON content-type on bodiless calls; optional request bodies; realistic shared fixtures. |
 
 ---
 
@@ -299,3 +305,50 @@ only affects rollback behaviour. From now on the rule applies without exceptions
 If the client address isn't a valid IP (the Python test client reports `testclient`), the audit row stores no IP instead
 of failing the database insert, and with it the whole request. Applied to both toolkits.
 
+
+### D-38 transfer-service: crash-safe workflow
+Every status change is one database transaction (optimistic version check + history + audit + event). Calls to other
+services are made outside transactions and are idempotent per transfer, and four progress markers
+(`collect_requested_at`, `payment_captured_at`, `payout_requested_at`, `refund_requested_at`, migration
+`20260929000100_transfer_workflow`) record how far a transfer got. A recovery job (every 30 s, transfers unchanged for
+60 s) resumes anything left unfinished; see docs/state-machine.md. Timeouts: no payment started 5 min after the lock →
+`FAILED PAYMENT_NOT_STARTED`; an unanswered new rate after 24 h → `CANCELLED reconfirm_timeout`. Events that arrive late,
+twice or out of order change nothing.
+
+### D-39 Temporary stand-ins for compliance-service and payment-service
+Transfers need screening and payments, which are built in Steps 5–6. Until then `services/stand-ins` answers the same
+contract operations (same ports, same auth, same events) with in-memory state and scripted outcomes. Magic send
+amounts: CAD 13.13 declined, 133.00 blocked, 666.00 flagged for review, 99.99 payout fails (refund), over 10,000
+refused by limits. Each stand-in turns itself off as soon as the real service exists (`services/<name>/src/server.ts`),
+so nothing has to be removed later. They publish events directly (no outbox) because they have no database.
+
+### D-40 Transfer stats for compliance
+`GET /internal/transfers/stats`: counts include every transfer that was not cancelled (velocity rules look at
+attempts). Amounts include only money that moved or may still move, so FAILED and REFUNDED transfers are left out and a
+declined card doesn't use up the customer's limits. A "round amount" is a whole multiple of CAD 100; the repeat count
+excludes the latest transfer itself. `recipientSeenBefore` means at least one earlier, non-cancelled transfer to that
+recipient. The contract descriptions were updated to say this.
+
+### D-41 Rate lock expiry and re-quotes
+- Lock expires while waiting for the payment authorisation → `CANCELLED` (nothing was charged).
+- Screening passes but the lock can't be used any more → `FAILED RATE_LOCK_EXPIRED`, hold released.
+- A compliance officer approves after the lock expired → `AWAITING_RECONFIRM`. `requote` asks fx-service for a new quote
+  for the same CAD amount and funding method; if the **total charged** would change (e.g. fees changed meanwhile) it
+  answers 409 and the customer has to start a new transfer, because the CAD amount never changes after authorisation.
+  `reconfirm` locks the new quote and continues to capture.
+
+### D-42 Cancelling and idempotency
+- Customers can cancel in `FX_LOCKED`, `ON_HOLD` and `AWAITING_RECONFIRM` only until the transfer is cleared to charge;
+  after that a capture may already be under way, so the answer is 409.
+- `POST /v1/transfers` keeps each Idempotency-Key for 24 h in Redis (same body → the original response with 200; a
+  different body → 409 `IDEMPOTENCY_KEY_REUSED`). If it fails before anything was saved, the key is freed for a retry;
+  once the transfer row exists, the failure is remembered, because the database's unique (user, key) would refuse a second
+  transfer anyway.
+- Failure messages shown to customers never reveal compliance reasons.
+
+### D-43 Toolkit fixes found while building transfer-service
+- Internal calls without a body (capture, void) no longer send `content-type: application/json`, which Fastify rejects
+  when the body is empty.
+- An optional `requestBody` (cancel) now accepts no body in both toolkits; a body that is sent is still validated.
+- Test fixtures that share the `core` schema write real ciphertext, because other services' admin screens read every
+  row of the shared test database.

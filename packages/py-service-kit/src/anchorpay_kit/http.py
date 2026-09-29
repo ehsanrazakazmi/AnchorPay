@@ -193,9 +193,10 @@ class Service:
                         body = json.loads(raw) if raw else None
                     except json.JSONDecodeError as err:
                         raise AppError("VALIDATION_ERROR", f"Body is not valid JSON: {err.msg}") from err
-                    if body is None:
+                    if body is None and op.body_required:
                         raise AppError("VALIDATION_ERROR", "A JSON body is required.", errors=[{"field": "body", "message": "is required"}])
-                    validate_or_raise(op.body_schema, body, "body")
+                    if body is not None:
+                        validate_or_raise(op.body_schema, body, "body")
                 params = coerce(op.params_schema, {k: [v] for k, v in request.path_params.items()})
                 validate_or_raise(op.params_schema, params, "params")
                 query = coerce(op.query_schema, {k: request.query_params.getlist(k) for k in request.query_params})

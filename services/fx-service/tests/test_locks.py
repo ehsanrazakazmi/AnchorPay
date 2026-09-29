@@ -55,6 +55,15 @@ def test_quote_of_another_user_cannot_be_locked(client: TestClient) -> None:
     assert contract("internalLockRate", client.post("/internal/fx/locks", json=body, headers=service()), 409)["code"] == "CONFLICT"
 
 
+def test_quote_can_be_read_until_it_is_locked(client: TestClient) -> None:
+    q = client.post("/internal/fx/quotes", json=QUOTE, headers=service()).json()
+    seen = contract("internalGetQuote", client.get(f"/internal/fx/quotes/{q['quoteId']}", headers=service()), 200)
+    assert seen == q
+    client.post("/internal/fx/locks", json={"transferId": uuid7(), "userId": USER, "quoteId": q["quoteId"]}, headers=service())
+    gone = contract("internalGetQuote", client.get(f"/internal/fx/quotes/{q['quoteId']}", headers=service()), 404)
+    assert gone["code"] == "NOT_FOUND"
+
+
 def test_expired_quote(client: TestClient) -> None:
     body = {"transferId": uuid7(), "userId": USER, "quoteId": uuid7()}
     assert client.post("/internal/fx/locks", json=body, headers=service()).json()["code"] == "QUOTE_EXPIRED"

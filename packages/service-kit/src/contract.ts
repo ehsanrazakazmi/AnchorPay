@@ -25,6 +25,8 @@ export interface Operation {
   auth: AuthMode;
   schema: { body?: Json; params?: Json; querystring?: Json; headers?: Json };
   requestContentType: string | undefined;
+  /** false when the operation's requestBody is optional (a missing body is then valid). */
+  bodyRequired: boolean;
   responses: Record<string, { contentType: string | undefined; schema: Json }>;
 }
 
@@ -126,6 +128,7 @@ export function loadOperations(spec: SpecName): Operation[] {
           headers: objectSchema(headerParams, true),
         },
         requestContentType,
+        bodyRequired: op.requestBody?.required === true,
         responses,
       });
     }

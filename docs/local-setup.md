@@ -46,6 +46,7 @@ npm run verify           # must end with "Foundation verified"
 | `npm run lint:py` | Python lint (ruff) |
 | `npm run typecheck` | TypeScript type check of every service |
 | `npm run staff:create -- --email=... --phone=+1... --name="..." --role=admin` | create a staff account; prints a one-time temporary password |
+| Try a transfer | `npm run dev`, then sign up, add a PK recipient, `POST /v1/quotes` and `POST /v1/transfers` through the gateway. The stand-ins script the outcome by the CAD amount: **13.13** declined · **133.00** blocked · **666.00** held for review (approve it with a `compliance_officer` account: `GET /v1/admin/review-cases`, then `POST …/decision`) · **99.99** payout fails and is refunded · anything else completes in about 4 s |
 | `logs/mailbox.log` | every SMS and email the services "send" (verification codes, reset links), one JSON line each |
 | `npm run verify` | full health + integrity check of your environment |
 | `npm run check` | lint API contracts + validate event schemas (what CI runs first) |

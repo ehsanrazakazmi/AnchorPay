@@ -5,8 +5,10 @@ sanctions and fraud screening, live exchange rates with a 30-minute rate lock, p
 full audit trail, built as microservices on a zero-cost local stack.
 
 **Status:** Built so far: shared toolkits (Node + Python), **gateway**, **identity-service** (sign-up, login,
-tokens, verification, profile, recipients, staff admin) and **fx-service** (corridors, live rates, quotes, 30-minute rate
-locks). Next: transfer-service (the transfer state machine).
+tokens, verification, profile, recipients, staff admin), **fx-service** (corridors, live rates, quotes, 30-minute rate
+locks) and **transfer-service** (the transfer state machine: create, screen, capture, pay out, cancel, re-quote,
+refund, crash recovery). Compliance and payments are temporary stand-ins for now. Next: payment-service, the mock
+payout partner and ledger-service.
 
 ## Quick start (Windows)
 ```powershell
@@ -32,7 +34,7 @@ infra/local/      installer + start/stop scripts + Kafka config for the local st
 scripts/          setup, db, kafka, contract checks, verify, API docs server
 docs/             architecture, decisions, state machine, database, kafka, api, secrets, setup, sign-off
 packages/         service-kit (Node) and py-service-kit (Python): shared runtime for every service
-services/         gateway, identity-service, fx-service (built) · the others come in the next steps
+services/         gateway, identity-service, fx-service, transfer-service (built) · stand-ins (temporary) · the others come next
 apps/web/         Next.js customer app + admin portal (Module 4)     — next phases
 ```
 

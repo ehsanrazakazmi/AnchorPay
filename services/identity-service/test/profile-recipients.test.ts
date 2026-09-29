@@ -186,6 +186,10 @@ describe('internal API', () => {
     const forPayment = expectContract('internalGetRecipient', await get(bank.id, 'payment-service'), 200);
     expect(forPayment.bankAccount.accountNumber).toBe(IBAN);
     expect(expectContract('internalGetRecipient', await get(wallet.id, 'payment-service'), 200).mobileWallet.walletNumber).toBe('+923001234567');
+    expect(forPayment.deletedAt).toBeNull();
+    await t.app.inject({ method: 'DELETE', url: `/v1/recipients/${bank.id}`, headers });
+    const deleted = expectContract('internalGetRecipient', await get(bank.id, 'transfer-service'), 200);
+    expect(deleted.deletedAt).toMatch(/^\d{4}-/); // still readable (past transfers), but flagged
     const forCompliance = expectContract('internalGetRecipient', await get(bank.id, 'compliance-service'), 200);
     expect(forCompliance.fullName).toBe('Nasreen Begum');
     expect(forCompliance.bankAccount.accountNumber).toBeUndefined();

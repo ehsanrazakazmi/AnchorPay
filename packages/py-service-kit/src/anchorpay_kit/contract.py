@@ -66,6 +66,7 @@ class Operation:
     query_schema: dict[str, Any] | None
     header_schema: dict[str, Any] | None
     responses: dict[str, dict[str, Any]] = field(default_factory=dict)
+    body_required: bool = True  # False when the requestBody is optional (a missing body is then valid)
 
 
 def _auth_mode(spec: str, security: list[dict[str, Any]]) -> str:
@@ -127,6 +128,7 @@ def load_operations(spec: str) -> tuple[Operation, ...]:
                 query_schema=_object_schema(query_params),
                 header_schema=_object_schema(header_params, lower=True),
                 responses=responses,
+                body_required=op.get("requestBody", {}).get("required") is True,
             ))
     return tuple(ops)
 

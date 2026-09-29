@@ -122,7 +122,11 @@ export interface ConsumerMeta {
   key: string | null;
 }
 
-export type EventHandler = (event: EventEnvelope, client: PoolClient, meta: ConsumerMeta) => Promise<void>;
+/** Runs after the handler's transaction committed (e.g. calls to other services). Failures are logged, not retried:
+ * the committed state is the source of truth and a recovery job picks up anything left unfinished. */
+export type AfterCommit = () => Promise<void>;
+
+export type EventHandler = (event: EventEnvelope, client: PoolClient, meta: ConsumerMeta) => Promise<void | AfterCommit>;
 
 export interface ConsumerOptions {
   kafka: Kafka;
@@ -140,6 +144,17 @@ export interface ConsumerOptions {
 
 export interface RunningConsumer {
   stop(): Promise<void>;
+  /** Resolves once Kafka has assigned partitions to this consumer (it will now see new messages). */
+  ready(timeoutMs?: number): Promise<void>;
+}
+
+/** Waits until a consumer owns at least one partition, instead of sleeping a guessed amount. */
+export async function waitForAssignment(consumer: { assignment(): unknown[] }, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (consumer.assignment().length === 0) {
+    if (Date.now() > deadline) throw new Error(`consumer got no partitions within ${timeoutMs} ms`);
+    await sleep(100);
+  }
 }
 
 /**
@@ -200,14 +215,23 @@ export async function startConsumer(options: ConsumerOptions): Promise<RunningCo
       }
       for (let attempt = 1; ; attempt++) {
         try {
+          const pending: { afterCommit?: AfterCommit } = {};
           await withTransaction(options.pool, async (client) => {
             const inserted = await client.query(
               `INSERT INTO ${schema}.inbox (consumer, event_id, topic) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
               [options.service, event.eventId, topic],
             );
             if (inserted.rowCount === 0) return; // already processed
-            await options.handler(event, client, meta);
+            const followUp = await options.handler(event, client, meta);
+            if (typeof followUp === 'function') pending.afterCommit = followUp;
           });
+          if (pending.afterCommit) {
+            try {
+              await pending.afterCommit();
+            } catch (err) {
+              options.log.error({ err, ...meta, eventId: event.eventId }, 'follow-up after event failed; recovery will resume it');
+            }
+          }
           return;
         } catch (err) {
           const delay = delays[attempt - 1];
@@ -227,5 +251,6 @@ export async function startConsumer(options: ConsumerOptions): Promise<RunningCo
       await consumer.disconnect();
       await dlq.disconnect();
     },
+    ready: (timeoutMs) => waitForAssignment(consumer, timeoutMs),
   };
 }

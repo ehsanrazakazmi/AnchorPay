@@ -156,7 +156,22 @@ export function createService(options: ServiceOptions): Service {
       if (handled.has(operationId)) throw new Error(`${operationId} registered twice`);
       handled.add(operationId);
       const schema = Object.fromEntries(Object.entries(op.schema).filter(([, v]) => v !== undefined));
-      app.route({ method: op.method, url: op.routerPath, schema, config: { operation: op }, handler });
+      // Fastify validates the body even when none was sent; an optional requestBody must accept "no body".
+      const validatorCompiler = op.schema.body && !op.bodyRequired
+        ? ({ schema: part, httpPart }: { schema: unknown; httpPart?: string }) => {
+          const validate = ajv.compile(part as object);
+          if (httpPart !== 'body') return validate;
+          const optional = (data: unknown) => {
+            if (data === undefined || data === null) return true; // Fastify passes null when nothing was sent
+            const ok = validate(data);
+            optional.errors = validate.errors;
+            return ok;
+          };
+          optional.errors = null as typeof validate.errors;
+          return optional;
+        }
+        : undefined;
+      app.route({ method: op.method, url: op.routerPath, schema, config: { operation: op }, handler, ...(validatorCompiler ? { validatorCompiler } : {}) });
     },
     unhandled: () => [...owned.keys()].filter((id) => !handled.has(id)),
   };

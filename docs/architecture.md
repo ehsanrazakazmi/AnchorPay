@@ -46,6 +46,10 @@ flowchart LR
 
 Why these services and not the PDF's full list: [DECISIONS.md D-04](DECISIONS.md#d-04-services).
 
+Until Steps 5–6 are built, `services/stand-ins` answers as **compliance-service (5001)** and **payment-service (4003)**
+with in-memory, scripted outcomes, so transfers run end to end today. Each stand-in switches itself off once the real
+service exists ([DECISIONS.md D-39](DECISIONS.md#d-39-temporary-stand-ins-for-compliance-service-and-payment-service)).
+
 ## Routing
 The gateway loads `contracts/openapi/public-api.yaml` at start-up and routes every operation to the service in its
 `x-owner-service`, checking `x-roles` against the JWT's `role` claim. The spec is the single source of truth, so

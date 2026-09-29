@@ -163,6 +163,7 @@ export class Recipients {
     return {
       ...api,
       userId: row.user_id,
+      deletedAt: row.deleted_at ? row.deleted_at.toISOString() : null,
       ...('bankAccount' in api ? { bankAccount: { ...api.bankAccount, ...(accountNumber ? { accountNumber } : {}) } } : {}),
       ...('mobileWallet' in api ? { mobileWallet: { ...api.mobileWallet, ...(walletNumber ? { walletNumber } : {}) } } : {}),
     };

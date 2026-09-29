@@ -35,6 +35,7 @@ export interface CallOptions {
   /** Only for idempotent calls. Retries on network errors and 5xx with exponential backoff. */
   retries?: number;
   baseUrl?: string;
+  headers?: Record<string, string>;
 }
 
 export class InternalClient {
@@ -52,10 +53,12 @@ export class InternalClient {
         const res = await fetch(url, {
           method,
           headers: {
-            'content-type': 'application/json',
+            // Fastify rejects an empty body labelled as JSON, so bodiless calls (capture, void) send no content-type.
+            ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
             [IDENTITY_HEADERS.internalToken]: env('INTERNAL_SERVICE_TOKEN'),
             [IDENTITY_HEADERS.callingService]: this.caller,
             'x-request-id': options.requestId,
+            ...options.headers,
           },
           body: options.body === undefined ? undefined : JSON.stringify(options.body),
           signal: AbortSignal.timeout(options.timeoutMs ?? 2000),

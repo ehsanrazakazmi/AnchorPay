@@ -126,6 +126,13 @@ def build_service(deps: Deps) -> Service:
             row = lock_repo.create(conn, body["transferId"], body["userId"], q, deps.lock_ttl_seconds)
         return Reply(201, lock_repo.to_api(row))
 
+    @svc.handle("internalGetQuote")
+    def get_quote(ctx: Context) -> dict[str, Any]:
+        q = deps.quotes.peek(ctx.params["quoteId"])
+        if q is None:
+            raise AppError("NOT_FOUND", "This quote has expired or was already used.")
+        return quote_api.to_api(q)
+
     @svc.handle("internalGetLock")
     def get_lock(ctx: Context) -> dict[str, Any]:
         with deps.pool.connection() as conn:
